@@ -249,6 +249,7 @@ fn parse_update_set_from() {
                             cluster_by: vec![],
                             distribute_by: vec![],
                             sort_by: vec![],
+                            range_by: None,
                             having: None,
                             named_window: vec![],
                             qualify: None
@@ -3397,6 +3398,7 @@ fn test_parse_named_window() {
         distribute_by: vec![],
         sort_by: vec![],
         having: None,
+        range_by: None,
         named_window: vec![
             NamedWindowDefinition(
                 Ident {
@@ -3782,6 +3784,7 @@ fn parse_interval_and_or_xor() {
             cluster_by: vec![],
             distribute_by: vec![],
             sort_by: vec![],
+            range_by: None,
             having: None,
             named_window: vec![],
             qualify: None,
@@ -6050,6 +6053,7 @@ fn parse_merge() {
                             lateral_views: vec![],
                             selection: None,
                             group_by: vec![],
+                            range_by: None,
                             cluster_by: vec![],
                             distribute_by: vec![],
                             sort_by: vec![],
@@ -7116,5 +7120,32 @@ fn parse_create_type() {
             }
         },
         create_type
+    );
+}
+
+#[test]
+fn parse_range_select() {
+    let statements = Parser::parse_sql(&GenericDialect {}, "SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;").unwrap();
+    assert_eq!(statements.len(), 1);
+    assert_eq!("SELECT range_fn(rate, metrics, '5m', *), range_fn(sum, metrics, '10m', MAX), range_fn(sum, metrics, '10m', *) FROM t ALIGN '1h' FILL NULL",
+        format!("{}",statements[0])
+    );
+
+    let statements = Parser::parse_sql(&GenericDialect {}, "SELECT rate(metrics), sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;").unwrap();
+    assert_eq!(statements.len(), 1);
+    assert_eq!("SELECT rate(metrics), range_fn(sum, metrics, '10m', MAX), range_fn(sum, metrics, '10m', *) FROM t ALIGN '1h' FILL NULL",
+        format!("{}",statements[0])
+    );
+
+    let statements = Parser::parse_sql(&GenericDialect {}, "SELECT rate(metrics), sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t FILL NULL;").unwrap();
+    assert_eq!(statements.len(), 1);
+    assert_eq!("SELECT rate(metrics), range_fn(sum, metrics, '10m', MAX), range_fn(sum, metrics, '10m', *) FROM t",
+        format!("{}",statements[0])
+    );
+
+    let statements = Parser::parse_sql(&GenericDialect {}, "SELECT rate(metrics), sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t FILL NULL ALIGN '1h';").unwrap();
+    assert_eq!(statements.len(), 1);
+    assert_eq!("SELECT rate(metrics), range_fn(sum, metrics, '10m', MAX), range_fn(sum, metrics, '10m', *) FROM t ALIGN '1h' FILL NULL",
+        format!("{}",statements[0])
     );
 }

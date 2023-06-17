@@ -5337,6 +5337,24 @@ impl<'a> Parser<'a> {
             vec![]
         };
 
+        let range_by = {
+            let mut align: Option<Value> = None;
+            let mut fill: Option<Ident> = None;
+            for _ in 0..2 {
+                if self.parse_keyword(Keyword::ALIGN) {
+                    align = Some(self.parse_value()?);
+                }
+                if self.parse_keyword(Keyword::FILL) {
+                    fill = Some(self.parse_identifier()?);
+                }
+            }
+            if align.is_some() {
+                Some((align.unwrap(), fill))
+            } else {
+                None
+            }
+        };
+
         let sort_by = if self.parse_keywords(&[Keyword::SORT, Keyword::BY]) {
             self.parse_comma_separated(Parser::parse_expr)?
         } else {
@@ -5372,6 +5390,7 @@ impl<'a> Parser<'a> {
             group_by,
             cluster_by,
             distribute_by,
+            range_by,
             sort_by,
             having,
             named_window: named_windows,
@@ -6407,6 +6426,52 @@ impl<'a> Parser<'a> {
                 } else {
                     expr
                 };
+                let mut range: Option<Value> = None;
+                let mut fill: Option<Ident> = None;
+                for _ in 0..2 {
+                    if self.parse_keyword(Keyword::RANGE) {
+                        range = Some(self.parse_value()?);
+                    }
+                    if self.parse_keyword(Keyword::FILL) {
+                        fill = Some(self.parse_identifier()?);
+                    }
+                }
+                // rewrite function content to range function
+                // format like `Function(Function{name:"range_fn",args:["function name", "original args", "range duration", "fill arg"]})`
+                // if `fill` is `None`, the last parameter will be `FunctionArgExpr::Wildcard`
+                let expr = match expr {
+                    Expr::Function(func) if range.is_some() => {
+                        // args_num = "function name" + "original args" + "range duration" + "fill arg"
+                        let mut args = Vec::with_capacity(3 + func.args.len());
+                        args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                            Expr::CompoundIdentifier(func.name.0),
+                        )));
+                        args.extend(func.args);
+                        args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                            range.unwrap(),
+                        ))));
+                        args.push(
+                            fill.map(|x| {
+                                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(x)))
+                            })
+                            .unwrap_or(FunctionArg::Unnamed(FunctionArgExpr::Wildcard)),
+                        );
+                        let range_func = Function {
+                            name: ObjectName(vec![Ident {
+                                value: "range_fn".to_string(),
+                                quote_style: None,
+                            }]),
+                            args,
+                            over: None,
+                            distinct: false,
+                            special: false,
+                            order_by: vec![],
+                        };
+                        Expr::Function(range_func)
+                    }
+                    _ => expr,
+                };
+
                 self.parse_optional_alias(keywords::RESERVED_FOR_COLUMN_ALIAS)
                     .map(|alias| match alias {
                         Some(alias) => SelectItem::ExprWithAlias { expr, alias },

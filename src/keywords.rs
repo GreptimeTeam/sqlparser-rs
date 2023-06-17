@@ -74,6 +74,7 @@ define_keywords!(
     ADD,
     ADMIN,
     AGAINST,
+    ALIGN,
     ALL,
     ALLOCATE,
     ALTER,
@@ -255,6 +256,7 @@ define_keywords!(
     FILE,
     FILES,
     FILE_FORMAT,
+    FILL,
     FILTER,
     FIRST,
     FIRST_VALUE,
@@ -689,6 +691,9 @@ pub const RESERVED_FOR_TABLE_ALIAS: &[Keyword] = &[
     Keyword::SET,
     Keyword::QUALIFY,
     Keyword::WINDOW,
+    // for GreptimeDB Range select
+    Keyword::ALIGN,
+    Keyword::FILL,
 ];
 
 /// Can't be used as a column alias, so that `SELECT <expr> alias`
@@ -718,4 +723,7 @@ pub const RESERVED_FOR_COLUMN_ALIAS: &[Keyword] = &[
     // Reserved only as a column alias in the `SELECT` clause
     Keyword::FROM,
     Keyword::INTO,
+    // for GreptimeDB Range select
+    Keyword::RANGE,
+    Keyword::FILL,
 ];

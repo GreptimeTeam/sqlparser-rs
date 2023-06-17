@@ -457,6 +457,7 @@ fn parse_quote_identifiers_2() {
                 selection: None,
                 group_by: vec![],
                 cluster_by: vec![],
+                range_by: None,
                 distribute_by: vec![],
                 sort_by: vec![],
                 having: None,
@@ -495,6 +496,7 @@ fn parse_quote_identifiers_3() {
                 distribute_by: vec![],
                 sort_by: vec![],
                 having: None,
+                range_by: None,
                 named_window: vec![],
                 qualify: None
             }))),
@@ -886,6 +888,7 @@ fn parse_select_with_numeric_prefix_column_name() {
                     distribute_by: vec![],
                     sort_by: vec![],
                     having: None,
+                    range_by: None,
                     named_window: vec![],
                     qualify: None,
                 })))
@@ -930,6 +933,7 @@ fn parse_select_with_concatenation_of_exp_number_and_numeric_prefix_column() {
                     distribute_by: vec![],
                     sort_by: vec![],
                     having: None,
+                    range_by: None,
                     named_window: vec![],
                     qualify: None,
                 })))
@@ -1115,6 +1119,7 @@ fn parse_substring_in_select() {
                         }],
                         lateral_views: vec![],
                         selection: None,
+                        range_by: None,
                         group_by: vec![],
                         cluster_by: vec![],
                         distribute_by: vec![],
@@ -1399,6 +1404,7 @@ fn parse_hex_string_introducer() {
                 distribute_by: vec![],
                 sort_by: vec![],
                 having: None,
+                range_by: None,
                 named_window: vec![],
                 qualify: None,
                 into: None
