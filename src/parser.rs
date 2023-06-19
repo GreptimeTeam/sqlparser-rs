@@ -5337,23 +5337,28 @@ impl<'a> Parser<'a> {
             vec![]
         };
 
-        let range_by = {
-            let mut align: Option<Value> = None;
-            let mut fill: Option<Ident> = None;
-            for _ in 0..2 {
-                if self.parse_keyword(Keyword::ALIGN) {
-                    align = Some(self.parse_value()?);
+        let mut align: Option<Value> = None;
+        let mut fill: Option<Ident> = None;
+        for _ in 0..2 {
+            if self.parse_keyword(Keyword::ALIGN) {
+                if align.is_some() {
+                    return Err(ParserError::ParserError(
+                        "Duplicate ALIGN keyword detect in Select clause".into(),
+                    ));
                 }
-                if self.parse_keyword(Keyword::FILL) {
-                    fill = Some(self.parse_identifier()?);
+                let value = self.parse_value()?;
+                value.verify_duration()?;
+                align = Some(value);
+            }
+            if self.parse_keyword(Keyword::FILL) {
+                if fill.is_some() {
+                    return Err(ParserError::ParserError(
+                        "Duplicate FILL keyword detect in Select clause".into(),
+                    ));
                 }
+                fill = Some(self.parse_identifier()?);
             }
-            if align.is_some() {
-                Some((align.unwrap(), fill))
-            } else {
-                None
-            }
-        };
+        }
 
         let sort_by = if self.parse_keywords(&[Keyword::SORT, Keyword::BY]) {
             self.parse_comma_separated(Parser::parse_expr)?
@@ -5390,7 +5395,8 @@ impl<'a> Parser<'a> {
             group_by,
             cluster_by,
             distribute_by,
-            range_by,
+            align,
+            fill,
             sort_by,
             having,
             named_window: named_windows,
@@ -6426,16 +6432,23 @@ impl<'a> Parser<'a> {
                 } else {
                     expr
                 };
-                let mut range: Option<Value> = None;
-                let mut fill: Option<Ident> = None;
-                for _ in 0..2 {
-                    if self.parse_keyword(Keyword::RANGE) {
-                        range = Some(self.parse_value()?);
+                let range = if self.parse_keyword(Keyword::RANGE) {
+                    let value = self.parse_value()?;
+                    value.verify_duration()?;
+                    Some(value)
+                } else {
+                    None
+                };
+                let fill = if self.parse_keyword(Keyword::FILL) {
+                    if range.is_none() {
+                        return Err(ParserError::ParserError(format!(
+                            "Detect FILL keyword in Select item, but no RANGE given or RANGE after FILL"
+                        )));
                     }
-                    if self.parse_keyword(Keyword::FILL) {
-                        fill = Some(self.parse_identifier()?);
-                    }
-                }
+                    Some(self.parse_identifier()?)
+                } else {
+                    None
+                };
                 // rewrite function content to range function
                 // format like `Function(Function{name:"range_fn",args:["function name", "original args", "range duration", "fill arg"]})`
                 // if `fill` is `None`, the last parameter will be `FunctionArgExpr::Wildcard`
@@ -6450,12 +6463,9 @@ impl<'a> Parser<'a> {
                         args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
                             range.unwrap(),
                         ))));
-                        args.push(
-                            fill.map(|x| {
-                                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(x)))
-                            })
-                            .unwrap_or(FunctionArg::Unnamed(FunctionArgExpr::Wildcard)),
-                        );
+                        args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                            Expr::Identifier(fill.unwrap_or(Ident::new(""))),
+                        )));
                         let range_func = Function {
                             name: ObjectName(vec![Ident {
                                 value: "range_fn".to_string(),

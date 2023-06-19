@@ -216,7 +216,8 @@ pub struct Select {
     pub sort_by: Vec<Expr>,
     /// RANGE SELECT (GreptimeDB).
     /// GreptimeDB syntax: `ALIGN <Value> [ FILL <Ident> ]`
-    pub range_by: Option<(Value, Option<Ident>)>,
+    pub align: Option<Value>,
+    pub fill: Option<Ident>,
     /// HAVING
     pub having: Option<Expr>,
     /// WINDOW AS
@@ -274,11 +275,11 @@ impl fmt::Display for Select {
         if let Some(ref having) = self.having {
             write!(f, " HAVING {having}")?;
         }
-        if let Some(ref range) = self.range_by {
-            write!(f, " ALIGN {}", range.0)?;
-            if let Some(ref fill) = range.1 {
-                write!(f, " FILL {}", fill)?;
-            }
+        if let Some(ref align) = self.align {
+            write!(f, " ALIGN {}", align)?;
+        }
+        if let Some(ref fill) = self.fill {
+            write!(f, " FILL {}", fill)?;
         }
         if !self.named_window.is_empty() {
             write!(f, " WINDOW {}", display_comma_separated(&self.named_window))?;
