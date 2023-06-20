@@ -5343,7 +5343,7 @@ impl<'a> Parser<'a> {
             if self.parse_keyword(Keyword::ALIGN) {
                 if align.is_some() {
                     return Err(ParserError::ParserError(
-                        "Duplicate ALIGN keyword detect in Select clause".into(),
+                        "Duplicate ALIGN keyword detected in SELECT clause.".into(),
                     ));
                 }
                 let value = self.parse_value()?;
@@ -5353,7 +5353,7 @@ impl<'a> Parser<'a> {
             if self.parse_keyword(Keyword::FILL) {
                 if fill.is_some() {
                     return Err(ParserError::ParserError(
-                        "Duplicate FILL keyword detect in Select clause".into(),
+                        "Duplicate FILL keyword detected in SELECT clause.".into(),
                     ));
                 }
                 fill = Some(self.parse_identifier()?);
@@ -6442,19 +6442,20 @@ impl<'a> Parser<'a> {
                 let fill = if self.parse_keyword(Keyword::FILL) {
                     if range.is_none() {
                         return Err(ParserError::ParserError(format!(
-                            "Detect FILL keyword in Select item, but no RANGE given or RANGE after FILL"
+                            "Detect FILL keyword in SELECT item, but no RANGE given or RANGE after FILL"
                         )));
                     }
                     Some(self.parse_identifier()?)
                 } else {
                     None
                 };
-                // rewrite function content to range function
-                // format like `Function(Function{name:"range_fn",args:["function name", "original args", "range duration", "fill arg"]})`
-                // if `fill` is `None`, the last parameter will be `FunctionArgExpr::Wildcard`
+                // rewrite function to range function when RANGE keyword appear in Select item
+                // if `fill` is `None`, the last parameter will be a empty Ident for placeholder
+                // rate(metrics) RANGE '5m'           ->    range_fn(rate, metrics, '5m', )
+                // sum(metrics)  RANGE '5m' FILL MAX  ->    range_fn(sum,  metrics, '5m', MAX)
                 let expr = match expr {
                     Expr::Function(func) if range.is_some() => {
-                        // args_num = "function name" + "original args" + "range duration" + "fill arg"
+                        // args_num = function_name + original_args + range + fill
                         let mut args = Vec::with_capacity(3 + func.args.len());
                         args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
                             Expr::CompoundIdentifier(func.name.0),
@@ -6467,10 +6468,7 @@ impl<'a> Parser<'a> {
                             Expr::Identifier(fill.unwrap_or(Ident::new(""))),
                         )));
                         let range_func = Function {
-                            name: ObjectName(vec![Ident {
-                                value: "range_fn".to_string(),
-                                quote_style: None,
-                            }]),
+                            name: ObjectName(vec![Ident::new("range_fn")]),
                             args,
                             over: None,
                             distinct: false,

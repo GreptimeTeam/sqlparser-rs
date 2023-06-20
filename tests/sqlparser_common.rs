@@ -7173,25 +7173,25 @@ fn parse_range_select() {
     // FILL ... FILL ...
     assert_sql_err(
         "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t FILL NULL FILL NULL;",
-        "sql parser error: Duplicate FILL keyword detect in Select clause",
+        "sql parser error: Duplicate FILL keyword detected in SELECT clause.",
     );
 
     // ALIGN ... ALIGN ...
     assert_sql_err(
         "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t ALIGN '1h' ALIGN '1h';",
-        "sql parser error: Duplicate ALIGN keyword detect in Select clause",
+        "sql parser error: Duplicate ALIGN keyword detected in SELECT clause.",
     );
 
     // FILL without RANGE
     assert_sql_err(
         "SELECT sum(metrics) FILL MAX FROM t FILL NULL ALIGN '1h';",
-        "sql parser error: Detect FILL keyword in Select item, but no RANGE given or RANGE after FILL",
+        "sql parser error: Detect FILL keyword in SELECT item, but no RANGE given or RANGE after FILL",
     );
 
     // RANGE after FILL
     assert_sql_err(
         "SELECT sum(metrics) FILL MAX RANGE '10m' FROM t FILL NULL ALIGN '1h';",
-        "sql parser error: Detect FILL keyword in Select item, but no RANGE given or RANGE after FILL",
+        "sql parser error: Detect FILL keyword in SELECT item, but no RANGE given or RANGE after FILL",
     );
 
     // INVALID Duration String
