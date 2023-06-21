@@ -98,6 +98,8 @@ fn parse_map_access_expr() {
             }),
             group_by: vec![],
             cluster_by: vec![],
+            align: None,
+            fill: None,
             distribute_by: vec![],
             sort_by: vec![],
             having: None,

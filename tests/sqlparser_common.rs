@@ -249,6 +249,8 @@ fn parse_update_set_from() {
                             cluster_by: vec![],
                             distribute_by: vec![],
                             sort_by: vec![],
+                            align: None,
+                            fill: None,
                             having: None,
                             named_window: vec![],
                             qualify: None
@@ -3397,6 +3399,8 @@ fn test_parse_named_window() {
         distribute_by: vec![],
         sort_by: vec![],
         having: None,
+        align: None,
+        fill: None,
         named_window: vec![
             NamedWindowDefinition(
                 Ident {
@@ -3782,6 +3786,8 @@ fn parse_interval_and_or_xor() {
             cluster_by: vec![],
             distribute_by: vec![],
             sort_by: vec![],
+            align: None,
+            fill: None,
             having: None,
             named_window: vec![],
             qualify: None,
@@ -6050,6 +6056,8 @@ fn parse_merge() {
                             lateral_views: vec![],
                             selection: None,
                             group_by: vec![],
+                            align: None,
+                            fill: None,
                             cluster_by: vec![],
                             distribute_by: vec![],
                             sort_by: vec![],
@@ -7116,5 +7124,83 @@ fn parse_create_type() {
             }
         },
         create_type
+    );
+}
+
+fn assert_sql(s: &'static str, result: &'static str) {
+    let statements = Parser::parse_sql(&GenericDialect {}, s).unwrap();
+    assert_eq!(statements.len(), 1);
+    assert_eq!(result, format!("{}", statements[0]));
+}
+
+fn assert_sql_err(s: &'static str, result: &'static str) {
+    let error = Parser::parse_sql(&GenericDialect {}, s)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(result, error);
+}
+
+#[test]
+fn parse_range_select() {
+    // regular
+    assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
+     "SELECT range_fn(rate, metrics, '5m', ), range_fn(sum, metrics, '10m', MAX), range_fn(sum, metrics, '10m', ) FROM t ALIGN '1h' FILL NULL");
+
+    // aggregator without FILL and RANGE
+    assert_sql(
+        "SELECT rate(metrics), sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
+        "SELECT rate(metrics), range_fn(sum, metrics, '10m', ) FROM t ALIGN '1h' FILL NULL",
+    );
+
+    // the same aggregator with RANGE and without RANGE in one query
+    assert_sql(
+        "SELECT rate(metrics), rate(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
+        "SELECT rate(metrics), range_fn(rate, metrics, '10m', ) FROM t ALIGN '1h' FILL NULL",
+    );
+
+    // omit ALIGN
+    assert_sql(
+        "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t FILL NULL;",
+        "SELECT range_fn(sum, metrics, '10m', MAX) FROM t FILL NULL",
+    );
+
+    // FILL... ALIGN...
+    assert_sql(
+        "SELECT sum(metrics) RANGE '10m' FROM t FILL NULL ALIGN '1h';",
+        "SELECT range_fn(sum, metrics, '10m', ) FROM t ALIGN '1h' FILL NULL",
+    );
+
+    // FILL ... FILL ...
+    assert_sql_err(
+        "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t FILL NULL FILL NULL;",
+        "sql parser error: Duplicate FILL keyword detected in SELECT clause.",
+    );
+
+    // ALIGN ... ALIGN ...
+    assert_sql_err(
+        "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t ALIGN '1h' ALIGN '1h';",
+        "sql parser error: Duplicate ALIGN keyword detected in SELECT clause.",
+    );
+
+    // FILL without RANGE
+    assert_sql_err(
+        "SELECT sum(metrics) FILL MAX FROM t FILL NULL ALIGN '1h';",
+        "sql parser error: Detect FILL keyword in SELECT item, but no RANGE given or RANGE after FILL",
+    );
+
+    // RANGE after FILL
+    assert_sql_err(
+        "SELECT sum(metrics) FILL MAX RANGE '10m' FROM t FILL NULL ALIGN '1h';",
+        "sql parser error: Detect FILL keyword in SELECT item, but no RANGE given or RANGE after FILL",
+    );
+
+    // INVALID Duration String
+    assert_sql_err(
+        "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t FILL NULL ALIGN '1ff';",
+        "sql parser error: not a valid duration string: 1ff",
+    );
+    assert_sql_err(
+        "SELECT sum(metrics) RANGE '1regr' FILL MAX FROM t FILL NULL ALIGN '1h';",
+        "sql parser error: not a valid duration string: 1regr",
     );
 }

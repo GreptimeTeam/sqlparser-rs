@@ -5337,6 +5337,29 @@ impl<'a> Parser<'a> {
             vec![]
         };
 
+        let mut align: Option<Value> = None;
+        let mut fill: Option<Ident> = None;
+        for _ in 0..2 {
+            if self.parse_keyword(Keyword::ALIGN) {
+                if align.is_some() {
+                    return Err(ParserError::ParserError(
+                        "Duplicate ALIGN keyword detected in SELECT clause.".into(),
+                    ));
+                }
+                let value = self.parse_value()?;
+                value.verify_duration()?;
+                align = Some(value);
+            }
+            if self.parse_keyword(Keyword::FILL) {
+                if fill.is_some() {
+                    return Err(ParserError::ParserError(
+                        "Duplicate FILL keyword detected in SELECT clause.".into(),
+                    ));
+                }
+                fill = Some(self.parse_identifier()?);
+            }
+        }
+
         let sort_by = if self.parse_keywords(&[Keyword::SORT, Keyword::BY]) {
             self.parse_comma_separated(Parser::parse_expr)?
         } else {
@@ -5372,6 +5395,8 @@ impl<'a> Parser<'a> {
             group_by,
             cluster_by,
             distribute_by,
+            align,
+            fill,
             sort_by,
             having,
             named_window: named_windows,
@@ -6407,6 +6432,54 @@ impl<'a> Parser<'a> {
                 } else {
                     expr
                 };
+                let range = if self.parse_keyword(Keyword::RANGE) {
+                    let value = self.parse_value()?;
+                    value.verify_duration()?;
+                    Some(value)
+                } else {
+                    None
+                };
+                let fill = if self.parse_keyword(Keyword::FILL) {
+                    if range.is_none() {
+                        return Err(ParserError::ParserError(format!(
+                            "Detect FILL keyword in SELECT item, but no RANGE given or RANGE after FILL"
+                        )));
+                    }
+                    Some(self.parse_identifier()?)
+                } else {
+                    None
+                };
+                // rewrite function to range function when RANGE keyword appear in Select item
+                // if `fill` is `None`, the last parameter will be a empty Ident for placeholder
+                // rate(metrics) RANGE '5m'           ->    range_fn(rate, metrics, '5m', )
+                // sum(metrics)  RANGE '5m' FILL MAX  ->    range_fn(sum,  metrics, '5m', MAX)
+                let expr = match expr {
+                    Expr::Function(func) if range.is_some() => {
+                        // args_num = function_name + original_args + range + fill
+                        let mut args = Vec::with_capacity(3 + func.args.len());
+                        args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                            Expr::CompoundIdentifier(func.name.0),
+                        )));
+                        args.extend(func.args);
+                        args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                            range.unwrap(),
+                        ))));
+                        args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                            Expr::Identifier(fill.unwrap_or(Ident::new(""))),
+                        )));
+                        let range_func = Function {
+                            name: ObjectName(vec![Ident::new("range_fn")]),
+                            args,
+                            over: None,
+                            distinct: false,
+                            special: false,
+                            order_by: vec![],
+                        };
+                        Expr::Function(range_func)
+                    }
+                    _ => expr,
+                };
+
                 self.parse_optional_alias(keywords::RESERVED_FOR_COLUMN_ALIAS)
                     .map(|alias| match alias {
                         Some(alias) => SelectItem::ExprWithAlias { expr, alias },
