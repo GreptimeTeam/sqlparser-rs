@@ -217,7 +217,7 @@ pub struct Select {
     /// RANGE SELECT (GreptimeDB).
     /// GreptimeDB syntax: `ALIGN <Value> [ FILL <Ident> ]`
     pub align: Option<Value>,
-    pub fill: Option<Ident>,
+    pub fill: Option<Value>,
     /// HAVING
     pub having: Option<Expr>,
     /// WINDOW AS

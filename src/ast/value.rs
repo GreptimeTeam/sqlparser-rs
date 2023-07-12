@@ -306,7 +306,7 @@ fn validate_duration(ds: &str) -> Result<(), String> {
     if !DURATION_RE.is_match(ds) {
         return Err(format!("not a valid duration string: {ds}"));
     }
-    return Ok(());
+    Ok(())
 }
 
 #[cfg(test)]

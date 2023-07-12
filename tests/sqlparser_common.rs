@@ -7144,30 +7144,30 @@ fn assert_sql_err(s: &'static str, result: &'static str) {
 fn parse_range_select() {
     // regular
     assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-     "SELECT range_fn(rate, metrics, '5m', ), range_fn(sum, metrics, '10m', MAX), range_fn(sum, metrics, '10m', ) FROM t ALIGN '1h' FILL NULL");
+     "SELECT range_fn('rate', metrics, '5m', ''), range_fn('sum', metrics, '10m', 'MAX'), range_fn('sum', metrics, '10m', '') FROM t ALIGN '1h' FILL 'NULL'");
 
     // aggregator without FILL and RANGE
     assert_sql(
         "SELECT rate(metrics), sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-        "SELECT rate(metrics), range_fn(sum, metrics, '10m', ) FROM t ALIGN '1h' FILL NULL",
+        "SELECT rate(metrics), range_fn('sum', metrics, '10m', '') FROM t ALIGN '1h' FILL 'NULL'",
     );
 
     // the same aggregator with RANGE and without RANGE in one query
     assert_sql(
         "SELECT rate(metrics), rate(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-        "SELECT rate(metrics), range_fn(rate, metrics, '10m', ) FROM t ALIGN '1h' FILL NULL",
+        "SELECT rate(metrics), range_fn('rate', metrics, '10m', '') FROM t ALIGN '1h' FILL 'NULL'",
     );
 
     // omit ALIGN
     assert_sql(
         "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t FILL NULL;",
-        "SELECT range_fn(sum, metrics, '10m', MAX) FROM t FILL NULL",
+        "SELECT range_fn('sum', metrics, '10m', 'MAX') FROM t FILL 'NULL'",
     );
 
     // FILL... ALIGN...
     assert_sql(
         "SELECT sum(metrics) RANGE '10m' FROM t FILL NULL ALIGN '1h';",
-        "SELECT range_fn(sum, metrics, '10m', ) FROM t ALIGN '1h' FILL NULL",
+        "SELECT range_fn('sum', metrics, '10m', '') FROM t ALIGN '1h' FILL 'NULL'",
     );
 
     // FILL ... FILL ...
