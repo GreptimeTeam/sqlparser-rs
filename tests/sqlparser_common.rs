@@ -7146,6 +7146,36 @@ fn parse_range_select() {
     assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
      "SELECT range_fn('rate', metrics, '5m', ''), range_fn('sum', metrics, '10m', 'MAX'), range_fn('sum', metrics, '10m', '') FROM t ALIGN '1h' FILL 'NULL'");
 
+    // expression1
+    assert_sql(
+        "SELECT avg(a/2 + 1) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "SELECT range_fn('avg', a / 2 + 1, '5m', 'NULL') FROM t ALIGN '1h' FILL 'NULL'",
+    );
+
+    // expression2
+    assert_sql(
+        "SELECT avg(a) + 1 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "SELECT range_fn('avg', a, '5m', 'NULL') + 1 FROM t ALIGN '1h' FILL 'NULL'",
+    );
+
+    // expression3
+    assert_sql(
+        "SELECT (avg(a) + sum(b))/2 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "SELECT (range_fn('avg', a, '5m', 'NULL') + range_fn('sum', b, '5m', 'NULL')) / 2 FROM t ALIGN '1h' FILL 'NULL'",
+    );
+
+    // expression4
+    assert_sql(
+        "SELECT covariance(a, b) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "SELECT range_fn('covariance', a, b, '5m', 'NULL') FROM t ALIGN '1h' FILL 'NULL'",
+    );
+
+    // expression5
+    assert_sql(
+        "SELECT (covariance(a+1, b/2) + sum(b))/2 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "SELECT (range_fn('covariance', a + 1, b / 2, '5m', 'NULL') + range_fn('sum', b, '5m', 'NULL')) / 2 FROM t ALIGN '1h' FILL 'NULL'",
+    );
+
     // aggregator without FILL and RANGE
     assert_sql(
         "SELECT rate(metrics), sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",

@@ -6453,35 +6453,43 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                // rewrite function to range function when RANGE keyword appear in Select item
+                // Recursively rewrite function nested in expr to range function when RANGE keyword appear in Select item
                 // if `fill` is `None`, the last parameter will be a empty single quoted string for placeholder
-                // rate(metrics) RANGE '5m'           ->    range_fn('rate', metrics, '5m', )
-                // sum(metrics)  RANGE '5m' FILL MAX  ->    range_fn('sum',  metrics, '5m', 'MAX')
-                let expr = match expr {
-                    Expr::Function(func) if range.is_some() => {
-                        // args_num = function_name + original_args + range + fill
-                        let mut args = Vec::with_capacity(3 + func.args.len());
-                        args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                            Value::SingleQuotedString(func.name.to_string()),
-                        ))));
-                        args.extend(func.args);
-                        args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                            range.unwrap(),
-                        ))));
-                        args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                            fill.unwrap_or(Value::SingleQuotedString(String::new())),
-                        ))));
-                        let range_func = Function {
-                            name: ObjectName(vec![Ident::new("range_fn")]),
-                            args,
-                            over: None,
-                            distinct: false,
-                            special: false,
-                            order_by: vec![],
-                        };
-                        Expr::Function(range_func)
-                    }
-                    _ => expr,
+                // rate(metrics) RANGE '5m'           ->    range_fn('rate', metrics, '5m', '')
+                // rate(metrics) RANGE '5m' FILL MAX  ->    range_fn('rate', metrics, '5m', 'MAX')
+                let expr = if range.is_some() {
+                    let range = range.unwrap();
+                    let fill = fill.unwrap_or(Value::SingleQuotedString(String::new()));
+                    rewrite_calculation_expr(&expr, &|e: &Expr| {
+                        match e {
+                            Expr::Function(func) => {
+                                // args_num = function_name + original_args + range + fill
+                                let mut args = Vec::with_capacity(3 + func.args.len());
+                                args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                    Expr::Value(Value::SingleQuotedString(func.name.to_string())),
+                                )));
+                                args.extend(func.args.clone());
+                                args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                    Expr::Value(range.clone()),
+                                )));
+                                args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                    Expr::Value(fill.clone()),
+                                )));
+                                let range_func = Function {
+                                    name: ObjectName(vec![Ident::new("range_fn")]),
+                                    args,
+                                    over: None,
+                                    distinct: false,
+                                    special: false,
+                                    order_by: vec![],
+                                };
+                                Ok(Some(Expr::Function(range_func)))
+                            }
+                            _ => Ok(None),
+                        }
+                    })?
+                } else {
+                    expr
                 };
 
                 self.parse_optional_alias(keywords::RESERVED_FOR_COLUMN_ALIAS)
@@ -7180,6 +7188,34 @@ impl Word {
             value: self.value.clone(),
             quote_style: self.quote_style,
         }
+    }
+}
+
+/// Recursively rewrite a nested calculation `Expr`
+///
+/// The function's return type is `Result<Option<Expr>>>`, where:
+///
+/// * `Ok(Some(replacement_expr))`: A replacement `Expr` is provided, use replacement `Expr`.
+/// * `Ok(None)`: A replacement `Expr` is not provided, use old `Expr`.
+/// * `Err(err)`: Any error returned.
+fn rewrite_calculation_expr<F>(expr: &Expr, replacement_fn: &F) -> Result<Expr, ParserError>
+where
+    F: Fn(&Expr) -> Result<Option<Expr>, ParserError>,
+{
+    match replacement_fn(expr)? {
+        Some(replacement) => Ok(replacement),
+        None => match expr {
+            Expr::BinaryOp { left, op, right } => Ok(Expr::BinaryOp {
+                left: Box::new(rewrite_calculation_expr(left, replacement_fn)?),
+                op: op.clone(),
+                right: Box::new(rewrite_calculation_expr(right, replacement_fn)?),
+            }),
+            Expr::Nested(expr) => Ok(Expr::Nested(Box::new(rewrite_calculation_expr(
+                expr,
+                replacement_fn,
+            )?))),
+            expr => Ok(expr.clone()),
+        },
     }
 }
 
