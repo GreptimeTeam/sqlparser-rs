@@ -6457,8 +6457,7 @@ impl<'a> Parser<'a> {
                 // if `fill` is `None`, the last parameter will be a empty single quoted string for placeholder
                 // rate(metrics) RANGE '5m'           ->    range_fn('rate', metrics, '5m', '')
                 // rate(metrics) RANGE '5m' FILL MAX  ->    range_fn('rate', metrics, '5m', 'MAX')
-                let expr = if range.is_some() {
-                    let range = range.unwrap();
+                let expr = if let Some(range) = range {
                     let fill = fill.unwrap_or(Value::SingleQuotedString(String::new()));
                     rewrite_calculation_expr(&expr, &|e: &Expr| {
                         match e {
