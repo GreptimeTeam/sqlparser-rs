@@ -249,8 +249,6 @@ fn parse_update_set_from() {
                             cluster_by: vec![],
                             distribute_by: vec![],
                             sort_by: vec![],
-                            align: None,
-                            fill: None,
                             having: None,
                             named_window: vec![],
                             qualify: None
@@ -3399,8 +3397,6 @@ fn test_parse_named_window() {
         distribute_by: vec![],
         sort_by: vec![],
         having: None,
-        align: None,
-        fill: None,
         named_window: vec![
             NamedWindowDefinition(
                 Ident {
@@ -3786,8 +3782,6 @@ fn parse_interval_and_or_xor() {
             cluster_by: vec![],
             distribute_by: vec![],
             sort_by: vec![],
-            align: None,
-            fill: None,
             having: None,
             named_window: vec![],
             qualify: None,
@@ -6056,8 +6050,6 @@ fn parse_merge() {
                             lateral_views: vec![],
                             selection: None,
                             group_by: vec![],
-                            align: None,
-                            fill: None,
                             cluster_by: vec![],
                             distribute_by: vec![],
                             sort_by: vec![],
@@ -7142,62 +7134,67 @@ fn assert_sql_err(s: &'static str, result: &'static str) {
 
 #[test]
 fn parse_range_select() {
-    // regular
+    // rewrite format `range_fn(func_name, args, range, fill, by, align)`
+    // regular without by
     assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-     "SELECT range_fn('rate', metrics, '5m', ''), range_fn('sum', metrics, '10m', 'MAX'), range_fn('sum', metrics, '10m', '') FROM t ALIGN '1h' FILL 'NULL'");
+     "SELECT range_fn('rate', metrics, '5m', 'NULL', '1h'), range_fn('sum', metrics, '10m', 'MAX', '1h'), range_fn('sum', metrics, '10m', 'NULL', '1h') FROM t");
+
+    // regular with by
+    assert_sql("SELECT rate(metrics) RANGE '5m' by ((a+1)/2, b), sum(metrics) RANGE '10m' by (a) FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
+    "SELECT range_fn('rate', metrics, '5m', 'NULL', (a + 1) / 2, b, '1h'), range_fn('sum', metrics, '10m', 'MAX', a, '1h'), range_fn('sum', metrics, '10m', 'NULL', '1h') FROM t");
 
     // expression1
     assert_sql(
         "SELECT avg(a/2 + 1) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT range_fn('avg', a / 2 + 1, '5m', 'NULL') FROM t ALIGN '1h' FILL 'NULL'",
+        "SELECT range_fn('avg', a / 2 + 1, '5m', 'NULL', '1h') FROM t",
     );
 
     // expression2
     assert_sql(
         "SELECT avg(a) + 1 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT range_fn('avg', a, '5m', 'NULL') + 1 FROM t ALIGN '1h' FILL 'NULL'",
+        "SELECT range_fn('avg', a, '5m', 'NULL', '1h') + 1 FROM t",
     );
 
     // expression3
     assert_sql(
         "SELECT (avg(a) + sum(b))/2 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT (range_fn('avg', a, '5m', 'NULL') + range_fn('sum', b, '5m', 'NULL')) / 2 FROM t ALIGN '1h' FILL 'NULL'",
+        "SELECT (range_fn('avg', a, '5m', 'NULL', '1h') + range_fn('sum', b, '5m', 'NULL', '1h')) / 2 FROM t",
     );
 
     // expression4
     assert_sql(
         "SELECT covariance(a, b) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT range_fn('covariance', a, b, '5m', 'NULL') FROM t ALIGN '1h' FILL 'NULL'",
+        "SELECT range_fn('covariance', a, b, '5m', 'NULL', '1h') FROM t",
     );
 
     // expression5
     assert_sql(
         "SELECT (covariance(a+1, b/2) + sum(b))/2 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT (range_fn('covariance', a + 1, b / 2, '5m', 'NULL') + range_fn('sum', b, '5m', 'NULL')) / 2 FROM t ALIGN '1h' FILL 'NULL'",
+        "SELECT (range_fn('covariance', a + 1, b / 2, '5m', 'NULL', '1h') + range_fn('sum', b, '5m', 'NULL', '1h')) / 2 FROM t",
     );
 
     // aggregator without FILL and RANGE
     assert_sql(
         "SELECT rate(metrics), sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-        "SELECT rate(metrics), range_fn('sum', metrics, '10m', '') FROM t ALIGN '1h' FILL 'NULL'",
+        "SELECT rate(metrics), range_fn('sum', metrics, '10m', 'NULL', '1h') FROM t",
     );
 
     // the same aggregator with RANGE and without RANGE in one query
     assert_sql(
         "SELECT rate(metrics), rate(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-        "SELECT rate(metrics), range_fn('rate', metrics, '10m', '') FROM t ALIGN '1h' FILL 'NULL'",
+        "SELECT rate(metrics), range_fn('rate', metrics, '10m', 'NULL', '1h') FROM t",
     );
 
     // omit ALIGN
     assert_sql(
         "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t FILL NULL;",
-        "SELECT range_fn('sum', metrics, '10m', 'MAX') FROM t FILL 'NULL'",
+        "SELECT range_fn('sum', metrics, '10m', 'MAX') FROM t",
     );
 
     // FILL... ALIGN...
     assert_sql(
         "SELECT sum(metrics) RANGE '10m' FROM t FILL NULL ALIGN '1h';",
-        "SELECT range_fn('sum', metrics, '10m', '') FROM t ALIGN '1h' FILL 'NULL'",
+        "SELECT range_fn('sum', metrics, '10m', 'NULL', '1h') FROM t",
     );
 
     // FILL ... FILL ...
@@ -7232,5 +7229,10 @@ fn parse_range_select() {
     assert_sql_err(
         "SELECT sum(metrics) RANGE '1regr' FILL MAX FROM t FILL NULL ALIGN '1h';",
         "sql parser error: not a valid duration string: 1regr",
+    );
+
+    assert_sql_err(
+        "SELECT sum(metrics) RANGE '10m', * FROM t FILL NULL ALIGN '1h';",
+        "sql parser error: Wildcard `*` is not allowed in range select query",
     );
 }

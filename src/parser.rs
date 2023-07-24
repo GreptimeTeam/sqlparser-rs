@@ -5338,7 +5338,7 @@ impl<'a> Parser<'a> {
         };
 
         let mut align: Option<Value> = None;
-        let mut fill: Option<Value> = None;
+        let mut fill: Option<String> = None;
         for _ in 0..2 {
             if self.parse_keyword(Keyword::ALIGN) {
                 if align.is_some() {
@@ -5356,11 +5356,63 @@ impl<'a> Parser<'a> {
                         "Duplicate FILL keyword detected in SELECT clause.".into(),
                     ));
                 }
-                fill = Some(Value::SingleQuotedString(
-                    self.parse_identifier()?.to_string(),
-                ));
+                fill = Some(self.parse_identifier()?.to_string());
             }
         }
+        let projection = if let Some(align) = align {
+            let fill = fill.unwrap_or(String::new());
+            // range_fn(func_name, args, range, fill, by, align)
+            let align_fill_rewrite =
+                |expr: Expr| {
+                    rewrite_calculation_expr(&expr, &|e: &Expr| match e {
+                        Expr::Function(func) => {
+                            if let Some(name) = func.name.0.first() {
+                                if name.value.as_str() == "range_fn" {
+                                    let mut range_func = func.clone();
+                                    // use global fill if fill not given in range select item
+                                    let mut fill_index = range_func.args.len() - 1;
+                                    // the first parameter is always the function name, it cannot be the fill
+                                    while fill_index > 1 {
+                                        if let FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                            Expr::Value(Value::SingleQuotedString(value)),
+                                        )) = &mut range_func.args[fill_index]
+                                        {
+                                            if value.is_empty() {
+                                                *value = fill.clone();
+                                                break;
+                                            }
+                                        }
+                                        fill_index -= 1;
+                                    }
+                                    range_func.args.push(FunctionArg::Unnamed(
+                                        FunctionArgExpr::Expr(Expr::Value(align.clone())),
+                                    ));
+                                    return Ok(Some(Expr::Function(range_func)));
+                                }
+                            }
+                            Ok(None)
+                        }
+                        _ => Ok(None),
+                    })
+                };
+            projection
+                .into_iter()
+                .map(|select_item| match select_item {
+                    SelectItem::UnnamedExpr(expr) => {
+                        Ok(SelectItem::UnnamedExpr(align_fill_rewrite(expr)?))
+                    }
+                    SelectItem::ExprWithAlias { expr, alias } => Ok(SelectItem::ExprWithAlias {
+                        expr: align_fill_rewrite(expr)?,
+                        alias,
+                    }),
+                    _ => Err(ParserError::ParserError(
+                        "Wildcard `*` is not allowed in range select query".into(),
+                    )),
+                })
+                .collect::<Result<Vec<_>, ParserError>>()?
+        } else {
+            projection
+        };
 
         let sort_by = if self.parse_keywords(&[Keyword::SORT, Keyword::BY]) {
             self.parse_comma_separated(Parser::parse_expr)?
@@ -5397,8 +5449,6 @@ impl<'a> Parser<'a> {
             group_by,
             cluster_by,
             distribute_by,
-            align,
-            fill,
             sort_by,
             having,
             named_window: named_windows,
@@ -6437,7 +6487,15 @@ impl<'a> Parser<'a> {
                 let range = if self.parse_keyword(Keyword::RANGE) {
                     let value = self.parse_value()?;
                     value.verify_duration()?;
-                    Some(value)
+                    let by = if self.parse_keyword(Keyword::BY) {
+                        self.expect_token(&Token::LParen)?;
+                        let by = self.parse_comma_separated(Parser::parse_expr)?;
+                        self.expect_token(&Token::RParen)?;
+                        by
+                    } else {
+                        vec![]
+                    };
+                    Some((value, by))
                 } else {
                     None
                 };
@@ -6455,15 +6513,19 @@ impl<'a> Parser<'a> {
                 };
                 // Recursively rewrite function nested in expr to range function when RANGE keyword appear in Select item
                 // if `fill` is `None`, the last parameter will be a empty single quoted string for placeholder
-                // rate(metrics) RANGE '5m'           ->    range_fn('rate', metrics, '5m', '')
-                // rate(metrics) RANGE '5m' FILL MAX  ->    range_fn('rate', metrics, '5m', 'MAX')
-                let expr = if let Some(range) = range {
+                // rate(metrics) RANGE '5m' by (a, b)            ->    range_fn('rate', metrics, '5m', '', a, b)
+                // rate(metrics) RANGE '5m' FILL MAX by (a, b)   ->    range_fn('rate', metrics, '5m', 'MAX', a, b)
+                let expr = if let Some((range, by)) = range {
                     let fill = fill.unwrap_or(Value::SingleQuotedString(String::new()));
+                    let by = by
+                        .into_iter()
+                        .map(|x| FunctionArg::Unnamed(FunctionArgExpr::Expr(x)))
+                        .collect::<Vec<_>>();
                     rewrite_calculation_expr(&expr, &|e: &Expr| {
                         match e {
                             Expr::Function(func) => {
                                 // args_num = function_name + original_args + range + fill
-                                let mut args = Vec::with_capacity(3 + func.args.len());
+                                let mut args = Vec::with_capacity(3 + func.args.len() + by.len());
                                 args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
                                     Expr::Value(Value::SingleQuotedString(func.name.to_string())),
                                 )));
@@ -6474,6 +6536,7 @@ impl<'a> Parser<'a> {
                                 args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
                                     Expr::Value(fill.clone()),
                                 )));
+                                args.extend(by.clone());
                                 let range_func = Function {
                                     name: ObjectName(vec![Ident::new("range_fn")]),
                                     args,
