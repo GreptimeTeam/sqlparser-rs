@@ -7140,8 +7140,8 @@ fn parse_range_select() {
      "SELECT range_fn('rate', metrics, '5m', 'NULL', '1h'), range_fn('sum', metrics, '10m', 'MAX', '1h'), range_fn('sum', metrics, '10m', 'NULL', '1h') FROM t");
 
     // regular with by
-    assert_sql("SELECT rate(metrics) RANGE '5m' by ((a+1)/2, b), sum(metrics) RANGE '10m' by (a) FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-    "SELECT range_fn('rate', metrics, '5m', 'NULL', (a + 1) / 2, b, '1h'), range_fn('sum', metrics, '10m', 'MAX', a, '1h'), range_fn('sum', metrics, '10m', 'NULL', '1h') FROM t");
+    assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' by ((a+1)/2, b) FILL NULL;",
+    "SELECT range_fn('rate', metrics, '5m', 'NULL', (a + 1) / 2, b, '1h'), range_fn('sum', metrics, '10m', 'MAX', (a + 1) / 2, b, '1h'), range_fn('sum', metrics, '10m', 'NULL', (a + 1) / 2, b, '1h') FROM t");
 
     // expression1
     assert_sql(
