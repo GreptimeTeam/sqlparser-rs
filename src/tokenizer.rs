@@ -27,6 +27,7 @@ use alloc::{
 use core::fmt;
 use core::iter::Peekable;
 use core::str::Chars;
+use sqlparser_derive::DFConvert;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -39,8 +40,11 @@ use crate::dialect::{BigQueryDialect, DuckDbDialect, GenericDialect, SnowflakeDi
 use crate::dialect::{Dialect, MySqlDialect};
 use crate::keywords::{Keyword, ALL_KEYWORDS, ALL_KEYWORDS_INDEX};
 
+use crate::ast::Convert;
+
 /// SQL Token enumeration
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[df_path(df_sqlparser::tokenizer)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum Token {
@@ -279,7 +283,8 @@ impl Token {
 }
 
 /// A keyword (like SELECT) or an optionally quoted SQL identifier
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[df_path(df_sqlparser::tokenizer)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct Word {
@@ -318,7 +323,8 @@ impl Word {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[df_path(df_sqlparser::tokenizer)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum Whitespace {

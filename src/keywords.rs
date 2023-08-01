@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "visitor")]
 use sqlparser_derive::{Visit, VisitMut};
 
+use sqlparser_derive::DFConvert;
+
 /// Defines a string constant for a single keyword: `kw_def!(SELECT);`
 /// expands to `pub const SELECT = "SELECT";`
 macro_rules! kw_def {
@@ -43,15 +45,19 @@ macro_rules! kw_def {
 /// and defines an ALL_KEYWORDS array of the defined constants.
 macro_rules! define_keywords {
     ($(
-        $ident:ident $(= $string_keyword:expr)?
+        $ident:ident $(= $string_keyword:expr)? $( => $meta:meta)*
     ),*) => {
-        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+        #[df_path(df_sqlparser::keywords)]
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
         #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
         #[allow(non_camel_case_types)]
         pub enum Keyword {
             NoKeyword,
-            $($ident),*
+            $(
+                $(#[$meta])*
+                $ident,
+            )*
         }
 
         pub const ALL_KEYWORDS_INDEX: &[Keyword] = &[
@@ -74,7 +80,7 @@ define_keywords!(
     ADD,
     ADMIN,
     AGAINST,
-    ALIGN,
+    ALIGN  => ignore_item,
     ALL,
     ALLOCATE,
     ALTER,
@@ -256,7 +262,7 @@ define_keywords!(
     FILE,
     FILES,
     FILE_FORMAT,
-    FILL,
+    FILL => ignore_item,
     FILTER,
     FIRST,
     FIRST_VALUE,
