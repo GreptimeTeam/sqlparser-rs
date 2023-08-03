@@ -5369,11 +5369,15 @@ impl<'a> Parser<'a> {
         }
         let projection = if let Some((align, by)) = align {
             let fill = fill.unwrap_or(String::new());
+            let by_num = FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                Value::SingleQuotedString(by.len().to_string()),
+            )));
             let by = by
                 .into_iter()
                 .map(|x| FunctionArg::Unnamed(FunctionArgExpr::Expr(x)))
                 .collect::<Vec<_>>();
-            // range_fn(func_name, args, range, fill, by, align)
+            // range_fn(func_name, argc, [argv], range, fill, byc, [byv], align)
+            // argc/byc are length of variadic arguments argv/byv
             let align_fill_rewrite =
                 |expr: Expr| {
                     rewrite_calculation_expr(&expr, &|e: &Expr| match e {
@@ -5390,6 +5394,7 @@ impl<'a> Parser<'a> {
                                             *value = fill.clone();
                                         }
                                     }
+                                    range_func.args.push(by_num.clone());
                                     range_func.args.extend(by.clone());
                                     range_func.args.push(FunctionArg::Unnamed(
                                         FunctionArgExpr::Expr(Expr::Value(align.clone())),
@@ -6511,9 +6516,10 @@ impl<'a> Parser<'a> {
                     None
                 };
                 // Recursively rewrite function nested in expr to range function when RANGE keyword appear in Select item
+                // follow the pattern of `range_fn(func_name, argc, [argv], range, fill)`, `argc` is the number of func_name arguments
                 // if `fill` is `None`, the last parameter will be a empty single quoted string for placeholder
-                // rate(metrics) RANGE '5m'            ->    range_fn('rate', metrics, '5m', '')
-                // rate(metrics) RANGE '5m' FILL MAX   ->    range_fn('rate', metrics, '5m', 'MAX')
+                // rate(metrics) RANGE '5m'            ->    range_fn('rate', '1', metrics, '5m', '')
+                // rate()        RANGE '5m' FILL MAX   ->    range_fn('rate', '0', '5m', 'MAX')
                 let expr = if let Some(range) = range {
                     let fill = fill.unwrap_or(Value::SingleQuotedString(String::new()));
                     rewrite_calculation_expr(&expr, &|e: &Expr| {
@@ -6523,6 +6529,11 @@ impl<'a> Parser<'a> {
                                 let mut args = Vec::with_capacity(3 + func.args.len());
                                 args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
                                     Expr::Value(Value::SingleQuotedString(func.name.to_string())),
+                                )));
+                                args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                    Expr::Value(Value::SingleQuotedString(
+                                        func.args.len().to_string(),
+                                    )),
                                 )));
                                 args.extend(func.args.clone());
                                 args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
