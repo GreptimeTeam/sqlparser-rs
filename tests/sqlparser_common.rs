@@ -7134,67 +7134,67 @@ fn assert_sql_err(s: &'static str, result: &'static str) {
 
 #[test]
 fn parse_range_select() {
-    // rewrite format `range_fn(func_name, args, range, fill, by, align)`
+    // rewrite format `range_fn(func_name, argc, [argv], range, fill, byc, [byv], align)`
     // regular without by
     assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-     "SELECT range_fn('rate', metrics, '5m', 'NULL', '1h'), range_fn('sum', metrics, '10m', 'MAX', '1h'), range_fn('sum', metrics, '10m', 'NULL', '1h') FROM t");
+     "SELECT range_fn('rate', '1', metrics, '5m', 'NULL', '0', '1h'), range_fn('sum', '1', metrics, '10m', 'MAX', '0', '1h'), range_fn('sum', '1', metrics, '10m', 'NULL', '0', '1h') FROM t");
 
     // regular with by
     assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' by ((a+1)/2, b) FILL NULL;",
-    "SELECT range_fn('rate', metrics, '5m', 'NULL', (a + 1) / 2, b, '1h'), range_fn('sum', metrics, '10m', 'MAX', (a + 1) / 2, b, '1h'), range_fn('sum', metrics, '10m', 'NULL', (a + 1) / 2, b, '1h') FROM t");
+    "SELECT range_fn('rate', '1', metrics, '5m', 'NULL', '2', (a + 1) / 2, b, '1h'), range_fn('sum', '1', metrics, '10m', 'MAX', '2', (a + 1) / 2, b, '1h'), range_fn('sum', '1', metrics, '10m', 'NULL', '2', (a + 1) / 2, b, '1h') FROM t");
 
     // expression1
     assert_sql(
         "SELECT avg(a/2 + 1) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT range_fn('avg', a / 2 + 1, '5m', 'NULL', '1h') FROM t",
+        "SELECT range_fn('avg', '1', a / 2 + 1, '5m', 'NULL', '0', '1h') FROM t",
     );
 
     // expression2
     assert_sql(
         "SELECT avg(a) + 1 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT range_fn('avg', a, '5m', 'NULL', '1h') + 1 FROM t",
+        "SELECT range_fn('avg', '1', a, '5m', 'NULL', '0', '1h') + 1 FROM t",
     );
 
     // expression3
     assert_sql(
         "SELECT (avg(a) + sum(b))/2 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT (range_fn('avg', a, '5m', 'NULL', '1h') + range_fn('sum', b, '5m', 'NULL', '1h')) / 2 FROM t",
+        "SELECT (range_fn('avg', '1', a, '5m', 'NULL', '0', '1h') + range_fn('sum', '1', b, '5m', 'NULL', '0', '1h')) / 2 FROM t",
     );
 
     // expression4
     assert_sql(
         "SELECT covariance(a, b) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT range_fn('covariance', a, b, '5m', 'NULL', '1h') FROM t",
+        "SELECT range_fn('covariance', '2', a, b, '5m', 'NULL', '0', '1h') FROM t",
     );
 
     // expression5
     assert_sql(
         "SELECT (covariance(a+1, b/2) + sum(b))/2 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT (range_fn('covariance', a + 1, b / 2, '5m', 'NULL', '1h') + range_fn('sum', b, '5m', 'NULL', '1h')) / 2 FROM t",
+        "SELECT (range_fn('covariance', '2', a + 1, b / 2, '5m', 'NULL', '0', '1h') + range_fn('sum', '1', b, '5m', 'NULL', '0', '1h')) / 2 FROM t",
     );
 
     // aggregator without FILL and RANGE
     assert_sql(
         "SELECT rate(metrics), sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-        "SELECT rate(metrics), range_fn('sum', metrics, '10m', 'NULL', '1h') FROM t",
+        "SELECT rate(metrics), range_fn('sum', '1', metrics, '10m', 'NULL', '0', '1h') FROM t",
     );
 
     // the same aggregator with RANGE and without RANGE in one query
     assert_sql(
         "SELECT rate(metrics), rate(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-        "SELECT rate(metrics), range_fn('rate', metrics, '10m', 'NULL', '1h') FROM t",
+        "SELECT rate(metrics), range_fn('rate', '1', metrics, '10m', 'NULL', '0', '1h') FROM t",
     );
 
     // omit ALIGN
     assert_sql(
         "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t FILL NULL;",
-        "SELECT range_fn('sum', metrics, '10m', 'MAX') FROM t",
+        "SELECT range_fn('sum', '1', metrics, '10m', 'MAX') FROM t",
     );
 
     // FILL... ALIGN...
     assert_sql(
         "SELECT sum(metrics) RANGE '10m' FROM t FILL NULL ALIGN '1h';",
-        "SELECT range_fn('sum', metrics, '10m', 'NULL', '1h') FROM t",
+        "SELECT range_fn('sum', '1', metrics, '10m', 'NULL', '0', '1h') FROM t",
     );
 
     // FILL ... FILL ...
