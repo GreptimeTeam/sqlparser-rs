@@ -7169,26 +7169,14 @@ fn parse_range_select() {
 
     // expression5
     assert_sql(
+        "SELECT covariance(cos(a), sin(b)) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "SELECT range_fn('covariance', '2', cos(a), sin(b), '5m', 'NULL', '0', '1h') FROM t",
+    );
+
+    // expression6
+    assert_sql(
         "SELECT (covariance(a+1, b/2) + sum(b))/2 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
         "SELECT (range_fn('covariance', '2', a + 1, b / 2, '5m', 'NULL', '0', '1h') + range_fn('sum', '1', b, '5m', 'NULL', '0', '1h')) / 2 FROM t",
-    );
-
-    // aggregator without FILL and RANGE
-    assert_sql(
-        "SELECT rate(metrics), sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-        "SELECT rate(metrics), range_fn('sum', '1', metrics, '10m', 'NULL', '0', '1h') FROM t",
-    );
-
-    // the same aggregator with RANGE and without RANGE in one query
-    assert_sql(
-        "SELECT rate(metrics), rate(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
-        "SELECT rate(metrics), range_fn('rate', '1', metrics, '10m', 'NULL', '0', '1h') FROM t",
-    );
-
-    // omit ALIGN
-    assert_sql(
-        "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t FILL NULL;",
-        "SELECT range_fn('sum', '1', metrics, '10m', 'MAX') FROM t",
     );
 
     // FILL... ALIGN...
@@ -7229,6 +7217,18 @@ fn parse_range_select() {
     assert_sql_err(
         "SELECT sum(metrics) RANGE '1regr' FILL MAX FROM t FILL NULL ALIGN '1h';",
         "sql parser error: not a valid duration string: 1regr",
+    );
+
+    // omit RANGE
+    assert_sql_err(
+        "SELECT sum(metrics) FROM t ALIGN '1h' FILL NULL;",
+        "sql parser error: RANGE argument not found in sum(metrics)",
+    );
+
+    // omit ALIGN
+    assert_sql_err(
+        "SELECT sum(metrics) RANGE '10m' FILL MAX FROM t FILL NULL;",
+        "sql parser error: ALIGN argument cannot be omitted in the range select query",
     );
 
     assert_sql_err(
