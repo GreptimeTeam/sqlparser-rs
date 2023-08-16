@@ -5367,6 +5367,11 @@ impl<'a> Parser<'a> {
                 fill = Some(self.parse_identifier()?.to_string());
             }
         }
+        if align.is_none() && fill.is_some() {
+            return Err(ParserError::ParserError(
+                "ALIGN argument cannot be omitted in the range select query".into(),
+            ));
+        }
         let projection = if let Some((align, by)) = align {
             let fill = fill.unwrap_or(String::new());
             let by_num = FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
@@ -5400,6 +5405,11 @@ impl<'a> Parser<'a> {
                                         FunctionArgExpr::Expr(Expr::Value(align.clone())),
                                     ));
                                     return Ok(Some(Expr::Function(range_func)));
+                                } else {
+                                    return Err(ParserError::ParserError(format!(
+                                        "RANGE argument not found in {}",
+                                        e
+                                    )));
                                 }
                             }
                             Ok(None)
