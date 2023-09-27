@@ -7151,14 +7151,14 @@ fn parse_range_select() {
 
     // expression2
     assert_sql(
-        "SELECT avg(a) + 1 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "SELECT avg(a) RANGE '5m' FILL NULL + 1 FROM t ALIGN '1h' FILL NULL;",
         "SELECT range_fn('avg', '1', a, '5m', 'NULL', '0', '1h') + 1 FROM t",
     );
 
     // expression3
     assert_sql(
-        "SELECT (avg(a) + sum(b))/2 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT (range_fn('avg', '1', a, '5m', 'NULL', '0', '1h') + range_fn('sum', '1', b, '5m', 'NULL', '0', '1h')) / 2 FROM t",
+        "SELECT ((avg(a) + sum(b))/2) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "SELECT ((range_fn('avg', '1', a, '5m', 'NULL', '0', '1h') + range_fn('sum', '1', b, '5m', 'NULL', '0', '1h')) / 2) FROM t",
     );
 
     // expression4
@@ -7175,8 +7175,8 @@ fn parse_range_select() {
 
     // expression6
     assert_sql(
-        "SELECT (covariance(a+1, b/2) + sum(b))/2 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
-        "SELECT (range_fn('covariance', '2', a + 1, b / 2, '5m', 'NULL', '0', '1h') + range_fn('sum', '1', b, '5m', 'NULL', '0', '1h')) / 2 FROM t",
+        "SELECT ((covariance(a+1, b/2) + sum(b))/2) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "SELECT ((range_fn('covariance', '2', a + 1, b / 2, '5m', 'NULL', '0', '1h') + range_fn('sum', '1', b, '5m', 'NULL', '0', '1h')) / 2) FROM t",
     );
 
     // FILL... ALIGN...
@@ -7200,13 +7200,13 @@ fn parse_range_select() {
     // FILL without RANGE
     assert_sql_err(
         "SELECT sum(metrics) FILL MAX FROM t FILL NULL ALIGN '1h';",
-        "sql parser error: Detect FILL keyword in SELECT item, but no RANGE given or RANGE after FILL",
+        "sql parser error: Detect FILL keyword in SELECT Expr, but no RANGE given or RANGE after FILL",
     );
 
     // RANGE after FILL
     assert_sql_err(
         "SELECT sum(metrics) FILL MAX RANGE '10m' FROM t FILL NULL ALIGN '1h';",
-        "sql parser error: Detect FILL keyword in SELECT item, but no RANGE given or RANGE after FILL",
+        "sql parser error: Detect FILL keyword in SELECT Expr, but no RANGE given or RANGE after FILL",
     );
 
     // INVALID Duration String
@@ -7222,7 +7222,7 @@ fn parse_range_select() {
     // omit RANGE
     assert_sql_err(
         "SELECT sum(metrics) FROM t ALIGN '1h' FILL NULL;",
-        "sql parser error: RANGE argument not found in sum(metrics)",
+        "sql parser error: Illegal Range select, no RANGE keyword found in any SelectItem",
     );
 
     // omit ALIGN
@@ -7234,5 +7234,64 @@ fn parse_range_select() {
     assert_sql_err(
         "SELECT sum(metrics) RANGE '10m', * FROM t FILL NULL ALIGN '1h';",
         "sql parser error: Wildcard `*` is not allowed in range select query",
+    );
+}
+
+#[test]
+fn parse_range_in_expr() {
+    // use range in expr
+    assert_sql(
+        "SELECT rate(a) RANGE '6m' + 1 FROM t ALIGN '1h' FILL NULL;",
+        "SELECT range_fn('rate', '1', a, '6m', 'NULL', '0', '1h') + 1 FROM t",
+    );
+
+    assert_sql(
+        "SELECT sin(rate(a) RANGE '6m' + 1) FROM t ALIGN '1h' FILL NULL;",
+        "SELECT sin(range_fn('rate', '1', a, '6m', 'NULL', '0', '1h') + 1) FROM t",
+    );
+
+    assert_sql(
+        "SELECT sin(cos(round(sin(avg(a + b) RANGE '5m' + 1)))) FROM test ALIGN '1h' by (tag_0,tag_1);",
+        "SELECT sin(cos(round(sin(range_fn('avg', '1', a + b, '5m', '', '2', tag_0, tag_1, '1h') + 1)))) FROM test",
+    );
+
+    assert_sql("SELECT rate(a) RANGE '6m' + rate(a) RANGE '5m' FROM t ALIGN '1h' FILL NULL;",
+    "SELECT range_fn('rate', '1', a, '6m', 'NULL', '0', '1h') + range_fn('rate', '1', a, '5m', 'NULL', '0', '1h') FROM t");
+
+    assert_sql("SELECT (rate(a) RANGE '6m' + rate(a) RANGE '5m')/b + a * rate(a) RANGE '5m' FROM t ALIGN '1h' FILL NULL;",
+    "SELECT (range_fn('rate', '1', a, '6m', 'NULL', '0', '1h') + range_fn('rate', '1', a, '5m', 'NULL', '0', '1h')) / b + a * range_fn('rate', '1', a, '5m', 'NULL', '0', '1h') FROM t");
+
+    assert_sql("SELECT round(max(a+1) Range '5m' FILL NULL), sin((max(a) + 1) Range '5m' FILL NULL) from t ALIGN '1h' by (b) FILL NULL;", 
+    "SELECT round(range_fn('max', '1', a + 1, '5m', 'NULL', '1', b, '1h')), sin((range_fn('max', '1', a, '5m', 'NULL', '1', b, '1h') + 1)) FROM t");
+
+    assert_sql(
+        "SELECT floor(ceil((min(a *2) + max(a *2)) RANGE '20s' + 1.0)) FROM t ALIGN '1h';",
+        "SELECT FLOOR(CEIL((range_fn('min', '1', a * 2, '20s', '', '0', '1h') + range_fn('max', '1', a * 2, '20s', '', '0', '1h')) + 1.0)) FROM t",
+    );
+
+    assert_sql(
+        "SELECT gcd(CAST(max(a + 1) Range '5m' FILL NULL AS Int64), CAST(b AS Int64)) + round(max(c+1) Range '6m' FILL NULL + 1) + max(d+3) Range '10m' FILL NULL * CAST(e AS Float64) + 1 FROM test ALIGN '1h' by (f, g);",
+        "SELECT gcd(CAST(range_fn('max', '1', a + 1, '5m', 'NULL', '2', f, g, '1h') AS Int64), CAST(b AS Int64)) + round(range_fn('max', '1', c + 1, '6m', 'NULL', '2', f, g, '1h') + 1) + range_fn('max', '1', d + 3, '10m', 'NULL', '2', f, g, '1h') * CAST(e AS Float64) + 1 FROM test",
+    );
+
+    // Legal syntax but illegal semantic, nested range semantics are problematic, leave semantic problem to greptimedb
+    assert_sql(
+        "SELECT rate(max(a) RANGE '6m') RANGE '6m' + 1 FROM t ALIGN '1h' FILL NULL;",
+        "SELECT range_fn('rate', '1', range_fn('max', '1', a, '6m', ''), '6m', 'NULL', '0', '1h') + 1 FROM t",
+    );
+
+    assert_sql_err(
+        "SELECT rate(a) RANGE '6m' RANGE '6m' + 1 FROM t ALIGN '1h' FILL NULL;",
+        "sql parser error: Expected end of statement, found: RANGE",
+    );
+
+    assert_sql_err(
+        "SELECT rate(a) + 1 RANGE '5m' FROM t ALIGN '1h' FILL NULL;",
+        "sql parser error: Can't use the RANGE keyword in Expr 1 without function",
+    );
+
+    assert_sql_err(
+        "SELECT 1 RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
+        "sql parser error: Can't use the RANGE keyword in Expr 1 without function",
     );
 }
