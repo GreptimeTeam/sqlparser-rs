@@ -21,6 +21,7 @@ use alloc::{
     vec::Vec,
 };
 use core::fmt;
+use std::collections::BTreeSet;
 
 use log::debug;
 
@@ -588,6 +589,7 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_prefix()?;
         debug!("prefix: {:?}", expr);
         loop {
+            expr = self.parse_range_expr(expr)?;
             let next_precedence = self.get_next_precedence()?;
             debug!("next precedence: {:?}", next_precedence);
 
@@ -596,6 +598,67 @@ impl<'a> Parser<'a> {
             }
 
             expr = self.parse_infix(expr, next_precedence)?;
+        }
+        Ok(expr)
+    }
+
+    fn parse_range_expr(&mut self, expr: Expr) -> Result<Expr, ParserError> {
+        let index = self.index;
+        let range = if self.parse_keyword(Keyword::RANGE) {
+            // Make sure Range followed by a value, or it will be confused with window function syntax
+            // e.g. `COUNT(*) OVER (ORDER BY a RANGE BETWEEN INTERVAL '1 DAY' PRECEDING AND INTERVAL '1 DAY' FOLLOWING)`
+            if let Ok(value) = self.parse_value() {
+                value.verify_duration()?;
+                value
+            } else {
+                self.index = index;
+                return Ok(expr);
+            }
+        } else if self.parse_keyword(Keyword::FILL) {
+            return Err(ParserError::ParserError(
+                "Detect FILL keyword in SELECT Expr, but no RANGE given or RANGE after FILL".into(),
+            ));
+        } else {
+            return Ok(expr);
+        };
+        let fill = if self.parse_keyword(Keyword::FILL) {
+            Value::SingleQuotedString(self.next_token().to_string())
+        } else {
+            Value::SingleQuotedString(String::new())
+        };
+        // Recursively rewrite function nested in expr to range function when RANGE keyword appear in Expr
+        // Treat Function Argument as scalar function, not execute rewrite
+        // follow the pattern of `range_fn(func, range, fill)`
+        // if `fill` is `None`, the last parameter will be a empty single quoted string for placeholder
+        // rate(metrics) RANGE '5m'            ->    range_fn(rate(metrics), '5m', '')
+        // rate()        RANGE '5m' FILL MAX   ->    range_fn(rate(), '5m', 'MAX')
+        let mut rewrite_count = 0;
+        let expr = rewrite_calculation_expr(&expr, false, &mut |e: &Expr| {
+            if matches!(e, Expr::Function(..)) {
+                let args = vec![
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(e.clone())),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(range.clone()))),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(fill.clone()))),
+                ];
+                let range_func = Function {
+                    name: ObjectName(vec![Ident::new("range_fn")]),
+                    args,
+                    over: None,
+                    distinct: false,
+                    special: false,
+                    order_by: vec![],
+                };
+                rewrite_count += 1;
+                Ok(Some(Expr::Function(range_func)))
+            } else {
+                Ok(None)
+            }
+        })?;
+        if rewrite_count == 0 {
+            return Err(ParserError::ParserError(format!(
+                "Can't use the RANGE keyword in Expr {} without function",
+                expr
+            )));
         }
         Ok(expr)
     }
@@ -5319,7 +5382,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let group_by = if self.parse_keywords(&[Keyword::GROUP, Keyword::BY]) {
+        let mut group_by = if self.parse_keywords(&[Keyword::GROUP, Keyword::BY]) {
             self.parse_comma_separated(Parser::parse_group_by_expr)?
         } else {
             vec![]
@@ -5364,7 +5427,7 @@ impl<'a> Parser<'a> {
                         "Duplicate FILL keyword detected in SELECT clause.".into(),
                     ));
                 }
-                fill = Some(self.parse_identifier()?.to_string());
+                fill = Some(self.next_token().to_string());
             }
         }
         if align.is_none() && fill.is_some() {
@@ -5377,19 +5440,30 @@ impl<'a> Parser<'a> {
             let by_num = FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
                 Value::SingleQuotedString(by.len().to_string()),
             )));
+            let mut fake_group_by = BTreeSet::new();
             let by = by
                 .into_iter()
-                .map(|x| FunctionArg::Unnamed(FunctionArgExpr::Expr(x)))
+                .map(|x| {
+                    collect_column_from_expr(&x, &mut fake_group_by, false);
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(x))
+                })
                 .collect::<Vec<_>>();
-            // range_fn(func_name, argc, [argv], range, fill, byc, [byv], align)
-            // argc/byc are length of variadic arguments argv/byv
-            let align_fill_rewrite =
-                |expr: Expr| {
-                    rewrite_calculation_expr(&expr, &|e: &Expr| match e {
+            // range_fn(func, range, fill, byc, [byv], align)
+            // byc are length of variadic arguments [byv]
+            let mut rewrite_count = 0;
+            let mut align_fill_rewrite =
+                |expr: Expr, columns: &mut BTreeSet<Expr>| {
+                    rewrite_calculation_expr(&expr, true, &mut |e: &Expr| match e {
                         Expr::Function(func) => {
                             if let Some(name) = func.name.0.first() {
                                 if name.value.as_str() == "range_fn" {
                                     let mut range_func = func.clone();
+                                    // remove aggr func args columns from group by
+                                    if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(expr))) =
+                                        range_func.args.first()
+                                    {
+                                        collect_column_from_expr(expr, columns, true);
+                                    }
                                     // use global fill if fill not given in range select item
                                     if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(
                                         Expr::Value(Value::SingleQuotedString(value)),
@@ -5404,12 +5478,8 @@ impl<'a> Parser<'a> {
                                     range_func.args.push(FunctionArg::Unnamed(
                                         FunctionArgExpr::Expr(Expr::Value(align.clone())),
                                     ));
+                                    rewrite_count += 1;
                                     return Ok(Some(Expr::Function(range_func)));
-                                } else {
-                                    return Err(ParserError::ParserError(format!(
-                                        "RANGE argument not found in {}",
-                                        e
-                                    )));
                                 }
                             }
                             Ok(None)
@@ -5417,21 +5487,39 @@ impl<'a> Parser<'a> {
                         _ => Ok(None),
                     })
                 };
-            projection
+            let rewrite_projection = projection
                 .into_iter()
-                .map(|select_item| match select_item {
-                    SelectItem::UnnamedExpr(expr) => {
-                        Ok(SelectItem::UnnamedExpr(align_fill_rewrite(expr)?))
+                .map(|select_item| {
+                    if let SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } =
+                        &select_item
+                    {
+                        // collect all columns from select items
+                        collect_column_from_expr(expr, &mut fake_group_by, false);
                     }
-                    SelectItem::ExprWithAlias { expr, alias } => Ok(SelectItem::ExprWithAlias {
-                        expr: align_fill_rewrite(expr)?,
-                        alias,
-                    }),
-                    _ => Err(ParserError::ParserError(
-                        "Wildcard `*` is not allowed in range select query".into(),
-                    )),
+                    match select_item {
+                        SelectItem::UnnamedExpr(expr) => Ok(SelectItem::UnnamedExpr(
+                            align_fill_rewrite(expr, &mut fake_group_by)?,
+                        )),
+                        SelectItem::ExprWithAlias { expr, alias } => {
+                            Ok(SelectItem::ExprWithAlias {
+                                expr: align_fill_rewrite(expr, &mut fake_group_by)?,
+                                alias,
+                            })
+                        }
+                        _ => Err(ParserError::ParserError(
+                            "Wildcard `*` is not allowed in range select query".into(),
+                        )),
+                    }
                 })
-                .collect::<Result<Vec<_>, ParserError>>()?
+                .collect::<Result<Vec<_>, ParserError>>()?;
+            if rewrite_count == 0 {
+                return Err(ParserError::ParserError(
+                    "Illegal Range select, no RANGE keyword found in any SelectItem".into(),
+                ));
+            } else {
+                group_by = fake_group_by.into_iter().collect();
+            }
+            rewrite_projection
         } else {
             projection
         };
@@ -6506,68 +6594,6 @@ impl<'a> Parser<'a> {
                 } else {
                     expr
                 };
-                let range = if self.parse_keyword(Keyword::RANGE) {
-                    let value = self.parse_value()?;
-                    value.verify_duration()?;
-                    Some(value)
-                } else {
-                    None
-                };
-                let fill = if self.parse_keyword(Keyword::FILL) {
-                    if range.is_none() {
-                        return Err(ParserError::ParserError(
-                            "Detect FILL keyword in SELECT item, but no RANGE given or RANGE after FILL".to_string()
-                        ));
-                    }
-                    Some(Value::SingleQuotedString(
-                        self.parse_identifier()?.to_string(),
-                    ))
-                } else {
-                    None
-                };
-                // Recursively rewrite function nested in expr to range function when RANGE keyword appear in Select item
-                // follow the pattern of `range_fn(func_name, argc, [argv], range, fill)`, `argc` is the number of func_name arguments
-                // if `fill` is `None`, the last parameter will be a empty single quoted string for placeholder
-                // rate(metrics) RANGE '5m'            ->    range_fn('rate', '1', metrics, '5m', '')
-                // rate()        RANGE '5m' FILL MAX   ->    range_fn('rate', '0', '5m', 'MAX')
-                let expr = if let Some(range) = range {
-                    let fill = fill.unwrap_or(Value::SingleQuotedString(String::new()));
-                    rewrite_calculation_expr(&expr, &|e: &Expr| {
-                        match e {
-                            Expr::Function(func) => {
-                                // args_num = function_name + original_args + range + fill
-                                let mut args = Vec::with_capacity(3 + func.args.len());
-                                args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                    Expr::Value(Value::SingleQuotedString(func.name.to_string())),
-                                )));
-                                args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                    Expr::Value(Value::SingleQuotedString(
-                                        func.args.len().to_string(),
-                                    )),
-                                )));
-                                args.extend(func.args.clone());
-                                args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                    Expr::Value(range.clone()),
-                                )));
-                                args.push(FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                    Expr::Value(fill.clone()),
-                                )));
-                                let range_func = Function {
-                                    name: ObjectName(vec![Ident::new("range_fn")]),
-                                    args,
-                                    over: None,
-                                    distinct: false,
-                                    special: false,
-                                    order_by: vec![],
-                                };
-                                Ok(Some(Expr::Function(range_func)))
-                            }
-                            _ => Ok(None),
-                        }
-                    })?
-                } else {
-                    expr
-                };
 
                 self.parse_optional_alias(keywords::RESERVED_FOR_COLUMN_ALIAS)
                     .map(|alias| match alias {
@@ -7275,25 +7301,143 @@ impl Word {
 /// * `Ok(Some(replacement_expr))`: A replacement `Expr` is provided, use replacement `Expr`.
 /// * `Ok(None)`: A replacement `Expr` is not provided, use old `Expr`.
 /// * `Err(err)`: Any error returned.
-fn rewrite_calculation_expr<F>(expr: &Expr, replacement_fn: &F) -> Result<Expr, ParserError>
+fn rewrite_calculation_expr<F>(
+    expr: &Expr,
+    rewrite_func_expr: bool,
+    replacement_fn: &mut F,
+) -> Result<Expr, ParserError>
 where
-    F: Fn(&Expr) -> Result<Option<Expr>, ParserError>,
+    F: FnMut(&Expr) -> Result<Option<Expr>, ParserError>,
 {
     match replacement_fn(expr)? {
         Some(replacement) => Ok(replacement),
         None => match expr {
             Expr::BinaryOp { left, op, right } => Ok(Expr::BinaryOp {
-                left: Box::new(rewrite_calculation_expr(left, replacement_fn)?),
+                left: Box::new(rewrite_calculation_expr(
+                    left,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
                 op: op.clone(),
-                right: Box::new(rewrite_calculation_expr(right, replacement_fn)?),
+                right: Box::new(rewrite_calculation_expr(
+                    right,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
             }),
             Expr::Nested(expr) => Ok(Expr::Nested(Box::new(rewrite_calculation_expr(
                 expr,
+                rewrite_func_expr,
                 replacement_fn,
             )?))),
+            Expr::Cast { expr, data_type } => Ok(Expr::Cast {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                data_type: data_type.clone(),
+            }),
+            Expr::TryCast { expr, data_type } => Ok(Expr::TryCast {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                data_type: data_type.clone(),
+            }),
+            Expr::SafeCast { expr, data_type } => Ok(Expr::SafeCast {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                data_type: data_type.clone(),
+            }),
+            // Scalar function `ceil(val)` will be parse as `Expr::Ceil` instead of `Expr::Function`
+            Expr::Ceil { expr, field } => Ok(Expr::Ceil {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                field: *field,
+            }),
+            // Scalar function `floor(val)` will be parse as `Expr::Floor` instead of `Expr::Function`
+            Expr::Floor { expr, field } => Ok(Expr::Floor {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                field: *field,
+            }),
+            Expr::Function(func) if rewrite_func_expr => {
+                let mut func = func.clone();
+                for fn_arg in &mut func.args {
+                    if let FunctionArg::Named {
+                        arg: FunctionArgExpr::Expr(expr),
+                        ..
+                    }
+                    | FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = fn_arg
+                    {
+                        *expr = rewrite_calculation_expr(expr, rewrite_func_expr, replacement_fn)?;
+                    }
+                }
+                Ok(Expr::Function(func))
+            }
             expr => Ok(expr.clone()),
         },
     }
+}
+
+// walk the whole expr to collect info
+fn walk_expr<F>(expr: &Expr, apply_fn: &mut F) -> Result<(), ParserError>
+where
+    F: FnMut(&Expr) -> Result<(), ParserError>,
+{
+    match expr {
+        Expr::BinaryOp { left, right, .. } => {
+            walk_expr(left, apply_fn)?;
+            walk_expr(right, apply_fn)?;
+        }
+        Expr::Nested(expr)
+        | Expr::Cast { expr, .. }
+        | Expr::TryCast { expr, .. }
+        | Expr::SafeCast { expr, .. }
+        | Expr::Ceil { expr, .. }
+        | Expr::Floor { expr, .. } => {
+            walk_expr(expr, apply_fn)?;
+        }
+        Expr::Function(func) => {
+            for fn_arg in &func.args {
+                if let FunctionArg::Named {
+                    arg: FunctionArgExpr::Expr(expr),
+                    ..
+                }
+                | FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = fn_arg
+                {
+                    walk_expr(expr, apply_fn)?;
+                }
+            }
+        }
+        _ => (),
+    };
+    apply_fn(expr)?;
+    Ok(())
+}
+
+fn collect_column_from_expr(expr: &Expr, columns: &mut BTreeSet<Expr>, remove: bool) {
+    let _ = walk_expr(expr, &mut |e| {
+        if matches!(e, Expr::CompoundIdentifier(_) | Expr::Identifier(_)) {
+            if remove {
+                columns.remove(e);
+            } else {
+                columns.insert(e.clone());
+            }
+        }
+        Ok(())
+    });
 }
 
 #[cfg(test)]
