@@ -23,8 +23,16 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "visitor")]
 use sqlparser_derive::{Visit, VisitMut};
 
+use lazy_static::lazy_static;
+use regex::Regex;
+
+use crate::parser::ParserError;
+
+use crate::ast::Convert;
+use crate::ast::DFConvert;
+
 /// Primitive SQL values such as number and string
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum Value {
@@ -88,7 +96,7 @@ impl fmt::Display for Value {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct DollarQuotedString {
@@ -109,7 +117,7 @@ impl fmt::Display for DollarQuotedString {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, DFConvert)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum DateTimeField {
@@ -281,7 +289,7 @@ pub fn escape_escaped_string(s: &str) -> EscapeEscapedStringLiteral<'_> {
     EscapeEscapedStringLiteral(s)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DFConvert)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum TrimWhereField {
@@ -298,5 +306,74 @@ impl fmt::Display for TrimWhereField {
             Leading => "LEADING",
             Trailing => "TRAILING",
         })
+    }
+}
+
+// Checks if Value is a valid Duration string, Regular Expression Reference: https://github.com/GreptimeTeam/promql-parser/blob/main/src/util/duration.rs
+lazy_static! {
+    static ref DURATION_RE: Regex = Regex::new(
+        r"(?x)
+^
+((?P<y>[0-9]+)y)?
+((?P<w>[0-9]+)w)?
+((?P<d>[0-9]+)d)?
+((?P<h>[0-9]+)h)?
+((?P<m>[0-9]+)m)?
+((?P<s>[0-9]+)s)?
+((?P<ms>[0-9]+)ms)?
+$",
+    )
+    .unwrap();
+}
+
+impl Value {
+    /// check this value is a valid duration string
+    pub fn verify_duration(&self) -> Result<(), ParserError> {
+        match self {
+            Value::SingleQuotedString(s) | Value::DoubleQuotedString(s) => {
+                validate_duration(s.as_str()).map_err(ParserError::ParserError)
+            }
+            _ => Err(ParserError::ParserError(format!(
+                "not a valid duration string: {self}"
+            ))),
+        }
+    }
+}
+
+/// validate a string is Duration.
+fn validate_duration(ds: &str) -> Result<(), String> {
+    if ds.is_empty() {
+        return Err("empty duration string".into());
+    }
+
+    if ds == "0" {
+        return Err("duration must be greater than 0".into());
+    }
+
+    if !DURATION_RE.is_match(ds) {
+        return Err(format!("not a valid duration string: {ds}"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_duration_regex() {
+        // valid regex
+        let res = vec![
+            "1y", "2w", "3d", "4h", "5m", "6s", "7ms", "1y2w3d", "4h30m", "3600ms",
+        ];
+        for re in res {
+            assert!(validate_duration(re).is_ok())
+        }
+
+        // invalid regex
+        let res = vec!["1", "1y1m1d", "-1w", "1.5d", "d"];
+        for re in res {
+            assert!(validate_duration(re).is_err())
+        }
     }
 }
