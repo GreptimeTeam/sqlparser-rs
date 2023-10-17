@@ -8,11 +8,7 @@ documentation = "https://docs.rs/sqlparser/"
 keywords = ["ansi", "sql", "lexer", "parser"]
 repository = "https://github.com/sqlparser-rs/sqlparser-rs"
 license = "Apache-2.0"
-include = [
-    "src/**/*.rs",
-    "Cargo.toml",
-    "LICENSE.TXT",
-]
+include = ["src/**/*.rs", "Cargo.toml", "LICENSE.TXT"]
 edition = "2021"
 
 [lib]
@@ -24,17 +20,21 @@ default = ["std"]
 std = []
 # Enable JSON output in the `cli` example:
 json_example = ["serde_json", "serde"]
-visitor = ["sqlparser_derive"]
+visitor = []
+bigdecimal-sql = ["bigdecimal", "df_sqlparser/bigdecimal"]
 
 [dependencies]
 bigdecimal = { version = "0.4.1", features = ["serde"], optional = true }
+df_sqlparser = { package = "sqlparser", version = "0.38.0" }
 log = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
 # serde_json is only used in examples/cli, but we have to put it outside
 # of dev-dependencies because of
 # https://github.com/rust-lang/cargo/issues/1596
 serde_json = { version = "1.0", optional = true }
-sqlparser_derive = { version = "0.1.1", path = "derive", optional = true }
+sqlparser_derive = { version = "0.1.1", path = "derive" }
+regex = "1"
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 simple_logger = "4.0"
