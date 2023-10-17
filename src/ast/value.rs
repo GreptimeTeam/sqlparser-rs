@@ -14,7 +14,7 @@
 use alloc::string::String;
 use core::fmt;
 
-#[cfg(feature = "bigdecimal")]
+#[cfg(feature = "bigdecimal-sql")]
 use bigdecimal::BigDecimal;
 
 #[cfg(feature = "serde")]
@@ -37,9 +37,9 @@ use crate::ast::DFConvert;
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum Value {
     /// Numeric literal
-    #[cfg(not(feature = "bigdecimal"))]
+    #[cfg(not(feature = "bigdecimal-sql"))]
     Number(String, bool),
-    #[cfg(feature = "bigdecimal")]
+    #[cfg(feature = "bigdecimal-sql")]
     // HINT: use `test_utils::number` to make an instance of
     // Value::Number This might help if you your tests pass locally
     // but fail on CI with the `--all-features` flag enabled

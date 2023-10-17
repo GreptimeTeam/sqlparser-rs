@@ -4737,7 +4737,11 @@ impl<'a> Parser<'a> {
     pub fn parse_literal_string(&mut self) -> Result<String, ParserError> {
         let next_token = self.next_token();
         match next_token.token {
-            Token::Word(Word { value, keyword, .. }) if keyword == Keyword::NoKeyword => Ok(value),
+            Token::Word(Word {
+                value,
+                keyword: Keyword::NoKeyword,
+                ..
+            }) => Ok(value),
             Token::SingleQuotedString(s) => Ok(s),
             Token::DoubleQuotedString(s) => Ok(s),
             Token::EscapedStringLiteral(s) if dialect_of!(self is PostgreSqlDialect | GenericDialect) => {
@@ -4764,9 +4768,9 @@ impl<'a> Parser<'a> {
                 Ok(Expr::Value(Value::SingleQuotedString(value)))
             }
             Token::SingleQuotedString(s) => Ok(Expr::Value(Value::SingleQuotedString(s))),
-            #[cfg(not(feature = "bigdecimal"))]
+            #[cfg(not(feature = "bigdecimal-sql"))]
             Token::Number(s, _) => Ok(Expr::Value(Value::Number(s, false))),
-            #[cfg(feature = "bigdecimal")]
+            #[cfg(feature = "bigdecimal-sql")]
             Token::Number(s, _) => Ok(Expr::Value(Value::Number(s.parse().unwrap(), false))),
             _ => self.expected("literal string, number or function", next_token),
         }
@@ -5788,7 +5792,7 @@ impl<'a> Parser<'a> {
             ));
         }
         let projection = if let Some((align, by)) = align {
-            let fill = fill.unwrap_or(String::new());
+            let fill = fill.unwrap_or_default();
             let by_num = FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
                 Value::SingleQuotedString(by.len().to_string()),
             )));
@@ -5970,8 +5974,8 @@ impl<'a> Parser<'a> {
             self.expect_token(&Token::Colon)?;
         } else if self.parse_keyword(Keyword::ROLE) {
             let context_modifier = match modifier {
-                Some(keyword) if keyword == Keyword::LOCAL => ContextModifier::Local,
-                Some(keyword) if keyword == Keyword::SESSION => ContextModifier::Session,
+                Some(Keyword::LOCAL) => ContextModifier::Local,
+                Some(Keyword::SESSION) => ContextModifier::Session,
                 _ => ContextModifier::None,
             };
 
@@ -6991,7 +6995,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse an [`WildcardAdditionalOptions`](WildcardAdditionalOptions) information for wildcard select items.
+    /// Parse an [`WildcardAdditionalOptions`] information for wildcard select items.
     ///
     /// If it is not possible to parse it, will return an option.
     pub fn parse_wildcard_additional_options(

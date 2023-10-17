@@ -110,7 +110,7 @@ macro_rules! visit_noop {
 
 visit_noop!(u8, u16, u32, u64, i8, i16, i32, i64, char, bool, String);
 
-#[cfg(feature = "bigdecimal")]
+#[cfg(feature = "bigdecimal-sql")]
 visit_noop!(bigdecimal::BigDecimal);
 
 /// A visitor that can be used to walk an AST tree.
@@ -490,7 +490,7 @@ where
 ///
 /// This demonstrates how to effectively replace an expression with another more complicated one
 /// that references the original. This example avoids unnecessary allocations by using the
-/// [`std::mem`](std::mem) family of functions.
+/// [`std::mem`] family of functions.
 ///
 /// ```
 /// # use sqlparser::parser::Parser;
