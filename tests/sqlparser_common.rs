@@ -7415,6 +7415,10 @@ fn parse_range_select() {
     assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' by ((a+1)/2, b) FILL NULL;",
     "SELECT range_fn(rate(metrics), '5m', 'NULL', '2', (a + 1) / 2, b, '1h'), range_fn(sum(metrics), '10m', 'MAX', '2', (a + 1) / 2, b, '1h'), range_fn(sum(metrics), '10m', 'NULL', '2', (a + 1) / 2, b, '1h') FROM t GROUP BY a, b");
 
+    // explicit empty by
+    assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' by () FILL NULL;",
+    "SELECT range_fn(rate(metrics), '5m', 'NULL', '1', 1, '1h'), range_fn(sum(metrics), '10m', 'MAX', '1', 1, '1h'), range_fn(sum(metrics), '10m', 'NULL', '1', 1, '1h') FROM t");
+
     // expression1
     assert_sql(
         "SELECT avg(a/2 + 1) RANGE '5m' FILL NULL FROM t ALIGN '1h' FILL NULL;",
