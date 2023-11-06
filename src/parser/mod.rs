@@ -20,6 +20,8 @@ use alloc::{
     vec,
     vec::Vec,
 };
+#[cfg(feature = "bigdecimal-sql")]
+use bigdecimal::BigDecimal;
 use core::fmt;
 use std::collections::BTreeSet;
 
@@ -5769,9 +5771,25 @@ impl<'a> Parser<'a> {
                 value.verify_duration()?;
                 let by = if self.parse_keyword(Keyword::BY) {
                     self.expect_token(&Token::LParen)?;
-                    let by = self.parse_comma_separated(Parser::parse_expr)?;
-                    self.expect_token(&Token::RParen)?;
-                    by
+                    if self.consume_token(&Token::RParen) {
+                        // for case like `by ()`
+                        // The user explicitly specifies that the aggregation key is empty. In this case, there is no aggregation key.
+                        // All data will be aggregated into a group, which is equivalent to using a random constant as the aggregation key.
+                        // Therefore, in this case, the constant 1 is used directly as the aggregation key.
+                        // `()` == `(1)`
+                        #[cfg(not(feature = "bigdecimal-sql"))]
+                        {
+                            vec![Expr::Value(Value::Number("1".into(), false))]
+                        }
+                        #[cfg(feature = "bigdecimal-sql")]
+                        {
+                            vec![Expr::Value(Value::Number(BigDecimal::from(1), false))]
+                        }
+                    } else {
+                        let by = self.parse_comma_separated(Parser::parse_expr)?;
+                        self.expect_token(&Token::RParen)?;
+                        by
+                    }
                 } else {
                     vec![]
                 };
