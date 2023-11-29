@@ -659,14 +659,20 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// Parse Range clause with format `RANGE [ Duration literal | (INTERVAL [interval expr]) ] FILL [ NULL | PREV .....]`
     fn parse_range_expr(&mut self, expr: Expr) -> Result<Expr, ParserError> {
         let index = self.index;
         let range = if self.parse_keyword(Keyword::RANGE) {
-            // Make sure Range followed by a value, or it will be confused with window function syntax
+            // Make sure Range followed by a value or interval expr, or it will be confused with window function syntax
             // e.g. `COUNT(*) OVER (ORDER BY a RANGE BETWEEN INTERVAL '1 DAY' PRECEDING AND INTERVAL '1 DAY' FOLLOWING)`
-            if let Ok(value) = self.parse_value() {
+            if self.consume_token(&Token::LParen) {
+                self.expect_keyword(Keyword::INTERVAL)?;
+                let interval = self.parse_interval()?;
+                self.expect_token(&Token::RParen)?;
+                interval
+            } else if let Ok(value) = self.parse_value() {
                 value.verify_duration()?;
-                value
+                Expr::Value(value)
             } else {
                 self.index = index;
                 return Ok(expr);
@@ -694,7 +700,7 @@ impl<'a> Parser<'a> {
             if matches!(e, Expr::Function(..)) {
                 let args = vec![
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(e.clone())),
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(range.clone()))),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(range.clone())),
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(fill.clone()))),
                 ];
                 let range_func = Function {
@@ -5757,8 +5763,8 @@ impl<'a> Parser<'a> {
         } else {
             vec![]
         };
-
-        let mut align: Option<(Value, Vec<Expr>)> = None;
+        // triple means (align duration, to, by)
+        let mut align: Option<(Expr, Expr, Vec<Expr>)> = None;
         let mut fill: Option<String> = None;
         for _ in 0..2 {
             if self.parse_keyword(Keyword::ALIGN) {
@@ -5767,8 +5773,27 @@ impl<'a> Parser<'a> {
                         "Duplicate ALIGN keyword detected in SELECT clause.".into(),
                     ));
                 }
-                let value = self.parse_value()?;
-                value.verify_duration()?;
+                // Must use parentheses in interval, otherwise it will cause syntax conflicts.
+                // `INTERVAL '1-1' YEAR TO MONTH` are conflict with
+                // `ALIGN INTERVAL '1' day TO '1970-01-01T00:00:00+08:00'`
+                let value = if self.consume_token(&Token::LParen) {
+                    self.expect_keyword(Keyword::INTERVAL)?;
+                    let interval = self.parse_interval()?;
+                    self.expect_token(&Token::RParen)?;
+                    interval
+                } else {
+                    let value = self.parse_value()?;
+                    value.verify_duration()?;
+                    Expr::Value(value)
+                };
+                let to = if self.parse_keyword(Keyword::TO) {
+                    let value = self.next_token().to_string();
+                    Expr::Value(Value::SingleQuotedString(
+                        value.trim_matches(|x| x == '\'' || x == '"').to_string(),
+                    ))
+                } else {
+                    Expr::Value(Value::SingleQuotedString(String::new()))
+                };
                 let by = if self.parse_keyword(Keyword::BY) {
                     self.expect_token(&Token::LParen)?;
                     if self.consume_token(&Token::RParen) {
@@ -5793,7 +5818,7 @@ impl<'a> Parser<'a> {
                 } else {
                     vec![]
                 };
-                align = Some((value, by));
+                align = Some((value, to, by));
             }
             if self.parse_keyword(Keyword::FILL) {
                 if fill.is_some() {
@@ -5809,7 +5834,7 @@ impl<'a> Parser<'a> {
                 "ALIGN argument cannot be omitted in the range select query".into(),
             ));
         }
-        let projection = if let Some((align, by)) = align {
+        let projection = if let Some((align, to, by)) = align {
             let fill = fill.unwrap_or_default();
             let by_num = FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
                 Value::SingleQuotedString(by.len().to_string()),
@@ -5822,7 +5847,7 @@ impl<'a> Parser<'a> {
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(x))
                 })
                 .collect::<Vec<_>>();
-            // range_fn(func, range, fill, byc, [byv], align)
+            // range_fn(func, range, fill, byc, [byv], align, to)
             // byc are length of variadic arguments [byv]
             let mut rewrite_count = 0;
             let mut align_fill_rewrite =
@@ -5850,7 +5875,10 @@ impl<'a> Parser<'a> {
                                     range_func.args.push(by_num.clone());
                                     range_func.args.extend(by.clone());
                                     range_func.args.push(FunctionArg::Unnamed(
-                                        FunctionArgExpr::Expr(Expr::Value(align.clone())),
+                                        FunctionArgExpr::Expr(align.clone()),
+                                    ));
+                                    range_func.args.push(FunctionArg::Unnamed(
+                                        FunctionArgExpr::Expr(to.clone()),
                                     ));
                                     rewrite_count += 1;
                                     return Ok(Some(Expr::Function(range_func)));
