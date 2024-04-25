@@ -378,6 +378,7 @@ define_keywords!(
     MOD,
     MODE,
     MODIFIES,
+    MODIFY,
     MODULE,
     MONTH,
     MSCK,
