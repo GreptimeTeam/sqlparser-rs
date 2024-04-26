@@ -812,10 +812,9 @@ impl<'a> Parser<'a> {
             // Make sure Range followed by a value or interval expr, or it will be confused with window function syntax
             // e.g. `COUNT(*) OVER (ORDER BY a RANGE BETWEEN INTERVAL '1 DAY' PRECEDING AND INTERVAL '1 DAY' FOLLOWING)`
             if self.consume_token(&Token::LParen) {
-                self.expect_keyword(Keyword::INTERVAL)?;
-                let interval = self.parse_interval()?;
+                let expr = self.parse_expr()?;
                 self.expect_token(&Token::RParen)?;
-                interval
+                expr
             } else if let Ok(value) = self.parse_value() {
                 value.verify_duration()?;
                 Expr::Value(value)
@@ -7416,20 +7415,25 @@ impl<'a> Parser<'a> {
                 // `INTERVAL '1-1' YEAR TO MONTH` are conflict with
                 // `ALIGN INTERVAL '1' day TO '1970-01-01T00:00:00+08:00'`
                 let value = if self.consume_token(&Token::LParen) {
-                    self.expect_keyword(Keyword::INTERVAL)?;
-                    let interval = self.parse_interval()?;
+                    let expr = self.parse_expr()?;
                     self.expect_token(&Token::RParen)?;
-                    interval
+                    expr
                 } else {
                     let value = self.parse_value()?;
                     value.verify_duration()?;
                     Expr::Value(value)
                 };
                 let to = if self.parse_keyword(Keyword::TO) {
-                    let value = self.next_token().to_string();
-                    Expr::Value(Value::SingleQuotedString(
-                        value.trim_matches(|x| x == '\'' || x == '"').to_string(),
-                    ))
+                    if self.consume_token(&Token::LParen) {
+                        let expr = self.parse_expr()?;
+                        self.expect_token(&Token::RParen)?;
+                        expr
+                    } else {
+                        let value = self.next_token().to_string();
+                        Expr::Value(Value::SingleQuotedString(
+                            value.trim_matches(|x| x == '\'' || x == '"').to_string(),
+                        ))
+                    }
                 } else {
                     Expr::Value(Value::SingleQuotedString(String::new()))
                 };

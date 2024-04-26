@@ -8572,7 +8572,7 @@ fn assert_sql_err(s: &'static str, result: &'static str) {
 
 #[test]
 fn parse_range_select() {
-    // rewrite format `range_fn(func_name, argc, [argv], range, fill, byc, [byv], align, to)`
+    // rewrite format `range_fn(func, range, fill, byc, [byv], align, to)`
     // regular without by
     assert_sql("SELECT rate(metrics) RANGE '5m', sum(metrics) RANGE '10m' FILL MAX, sum(metrics) RANGE '10m' FROM t ALIGN '1h' FILL NULL;",
      "SELECT range_fn(rate(metrics), '5m', 'NULL', '0', '1h', ''), range_fn(sum(metrics), '10m', 'MAX', '0', '1h', ''), range_fn(sum(metrics), '10m', 'NULL', '0', '1h', '') FROM t");
@@ -8790,5 +8790,27 @@ fn parse_range_to() {
     assert_sql(
         "SELECT rate(a) RANGE '6m' FROM t ALIGN '1h' TO '2021-07-01 00:00:00' FILL NULL;",
         "SELECT range_fn(rate(a), '6m', 'NULL', '0', '1h', '2021-07-01 00:00:00') FROM t",
+    );
+}
+
+#[test]
+fn parse_range_range_align_to_calculate() {
+    assert_sql(
+        "SELECT ts, min(val) RANGE (INTERVAL '1' day + INTERVAL '1 year 2 hours 3 minutes') FROM host ALIGN (INTERVAL '1' day + INTERVAL '1 year 2 hours 3 minutes') TO (now() - INTERVAL '1' day) by (1);",
+        "SELECT ts, range_fn(min(val), INTERVAL '1' DAY + INTERVAL '1 year 2 hours 3 minutes', '', '1', 1, INTERVAL '1' DAY + INTERVAL '1 year 2 hours 3 minutes', now() - INTERVAL '1' DAY) FROM host GROUP BY ts",
+    );
+    assert_sql(
+        "SELECT rate(a) RANGE '6m' FROM t ALIGN '1h' TO (( (now()) - ((INTERVAL '1' day)) )) FILL NULL;",
+        "SELECT range_fn(rate(a), '6m', 'NULL', '0', '1h', ((now()) - ((INTERVAL '1' DAY)))) FROM t",
+    );
+    // missing the last comma
+    assert_sql_err(
+        "SELECT rate(a) RANGE '6m' FROM t ALIGN '1h' TO (( (now()) - ((INTERVAL '1' day)) ) FILL NULL;",
+        "sql parser error: Detect FILL keyword in SELECT Expr, but no RANGE given or RANGE after FILL",
+    );
+    // addition last comma
+    assert_sql_err(
+        "SELECT rate(a) RANGE '6m' FROM t ALIGN '1h' TO (( (now()) - ((INTERVAL '1' day)) ) ) ) FILL NULL;",
+        "sql parser error: Expected end of statement, found: ) at Line: 1, Column 86",
     );
 }
