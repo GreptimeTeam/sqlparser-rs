@@ -2388,7 +2388,7 @@ fn parse_qualified_identifiers_with_numeric_prefix() {
 //
 //  left: `"SELECT 123e4, 123col_$@123abc FROM \"table\""`,
 //  right: `"SELECT 1230000, 123col_$@123abc FROM \"table\""`', src/test_utils.rs:114:13
-#[cfg(not(feature = "bigdecimal"))]
+#[cfg(not(feature = "bigdecimal-sql"))]
 #[test]
 fn parse_select_with_concatenation_of_exp_number_and_numeric_prefix_column() {
     let sql = "SELECT 123e4, 123col_$@123abc FROM \"table\"";
