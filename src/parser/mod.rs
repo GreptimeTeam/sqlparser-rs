@@ -20,7 +20,10 @@ use alloc::{
     vec,
     vec::Vec,
 };
+#[cfg(feature = "bigdecimal-sql")]
+use bigdecimal::BigDecimal;
 use core::fmt;
+use std::collections::BTreeSet;
 
 use log::debug;
 
@@ -864,6 +867,7 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_prefix()?;
         debug!("prefix: {:?}", expr);
         loop {
+            expr = self.parse_range_expr(expr)?;
             let next_precedence = self.get_next_precedence()?;
             debug!("next precedence: {:?}", next_precedence);
 
@@ -872,6 +876,74 @@ impl<'a> Parser<'a> {
             }
 
             expr = self.parse_infix(expr, next_precedence)?;
+        }
+        Ok(expr)
+    }
+
+    /// Parse Range clause with format `RANGE [ Duration literal | (INTERVAL [interval expr]) ] FILL [ NULL | PREV .....]`
+    fn parse_range_expr(&mut self, expr: Expr) -> Result<Expr, ParserError> {
+        let index = self.index;
+        let range = if self.parse_keyword(Keyword::RANGE) {
+            // Make sure Range followed by a value or interval expr, or it will be confused with window function syntax
+            // e.g. `COUNT(*) OVER (ORDER BY a RANGE BETWEEN INTERVAL '1 DAY' PRECEDING AND INTERVAL '1 DAY' FOLLOWING)`
+            if self.consume_token(&Token::LParen) {
+                let expr = self.parse_expr()?;
+                self.expect_token(&Token::RParen)?;
+                expr
+            } else if let Ok(value) = self.parse_value() {
+                value.verify_duration()?;
+                Expr::Value(value)
+            } else {
+                self.index = index;
+                return Ok(expr);
+            }
+        } else if self.parse_keyword(Keyword::FILL) {
+            return Err(ParserError::ParserError(
+                "Detect FILL keyword in SELECT Expr, but no RANGE given or RANGE after FILL".into(),
+            ));
+        } else {
+            return Ok(expr);
+        };
+        let fill = if self.parse_keyword(Keyword::FILL) {
+            Value::SingleQuotedString(self.next_token().to_string())
+        } else {
+            Value::SingleQuotedString(String::new())
+        };
+        // Recursively rewrite function nested in expr to range function when RANGE keyword appear in Expr
+        // Treat Function Argument as scalar function, not execute rewrite
+        // follow the pattern of `range_fn(func, range, fill)`
+        // if `fill` is `None`, the last parameter will be a empty single quoted string for placeholder
+        // rate(metrics) RANGE '5m'            ->    range_fn(rate(metrics), '5m', '')
+        // rate()        RANGE '5m' FILL MAX   ->    range_fn(rate(), '5m', 'MAX')
+        let mut rewrite_count = 0;
+        let expr = rewrite_calculation_expr(&expr, false, &mut |e: &Expr| {
+            if matches!(e, Expr::Function(..)) {
+                let args = vec![
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(e.clone())),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(range.clone())),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(fill.clone()))),
+                ];
+                let range_func = Function {
+                    name: ObjectName(vec![Ident::new("range_fn")]),
+                    args,
+                    over: None,
+                    distinct: false,
+                    special: false,
+                    order_by: vec![],
+                    filter: None,
+                    null_treatment: None,
+                };
+                rewrite_count += 1;
+                Ok(Some(Expr::Function(range_func)))
+            } else {
+                Ok(None)
+            }
+        })?;
+        if rewrite_count == 0 {
+            return Err(ParserError::ParserError(format!(
+                "Can't use the RANGE keyword in Expr {} without function",
+                expr
+            )));
         }
         Ok(expr)
     }
@@ -7648,7 +7720,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let group_by = if self.parse_keywords(&[Keyword::GROUP, Keyword::BY]) {
+        let mut group_by = if self.parse_keywords(&[Keyword::GROUP, Keyword::BY]) {
             if self.parse_keyword(Keyword::ALL) {
                 GroupByExpr::All
             } else {
@@ -7668,6 +7740,173 @@ impl<'a> Parser<'a> {
             self.parse_comma_separated(Parser::parse_expr)?
         } else {
             vec![]
+        };
+        // triple means (align duration, to, by)
+        let mut align: Option<(Expr, Expr, Vec<Expr>)> = None;
+        let mut fill: Option<String> = None;
+        for _ in 0..2 {
+            if self.parse_keyword(Keyword::ALIGN) {
+                if align.is_some() {
+                    return Err(ParserError::ParserError(
+                        "Duplicate ALIGN keyword detected in SELECT clause.".into(),
+                    ));
+                }
+                // Must use parentheses in interval, otherwise it will cause syntax conflicts.
+                // `INTERVAL '1-1' YEAR TO MONTH` are conflict with
+                // `ALIGN INTERVAL '1' day TO '1970-01-01T00:00:00+08:00'`
+                let value = if self.consume_token(&Token::LParen) {
+                    let expr = self.parse_expr()?;
+                    self.expect_token(&Token::RParen)?;
+                    expr
+                } else {
+                    let value = self.parse_value()?;
+                    value.verify_duration()?;
+                    Expr::Value(value)
+                };
+                let to = if self.parse_keyword(Keyword::TO) {
+                    if self.consume_token(&Token::LParen) {
+                        let expr = self.parse_expr()?;
+                        self.expect_token(&Token::RParen)?;
+                        expr
+                    } else {
+                        let value = self.next_token().to_string();
+                        Expr::Value(Value::SingleQuotedString(
+                            value.trim_matches(|x| x == '\'' || x == '"').to_string(),
+                        ))
+                    }
+                } else {
+                    Expr::Value(Value::SingleQuotedString(String::new()))
+                };
+                let by = if self.parse_keyword(Keyword::BY) {
+                    self.expect_token(&Token::LParen)?;
+                    if self.consume_token(&Token::RParen) {
+                        // for case like `by ()`
+                        // The user explicitly specifies that the aggregation key is empty. In this case, there is no aggregation key.
+                        // All data will be aggregated into a group, which is equivalent to using a random constant as the aggregation key.
+                        // Therefore, in this case, the constant 1 is used directly as the aggregation key.
+                        // `()` == `(1)`
+                        #[cfg(not(feature = "bigdecimal-sql"))]
+                        {
+                            vec![Expr::Value(Value::Number("1".into(), false))]
+                        }
+                        #[cfg(feature = "bigdecimal-sql")]
+                        {
+                            vec![Expr::Value(Value::Number(BigDecimal::from(1), false))]
+                        }
+                    } else {
+                        let by = self.parse_comma_separated(Parser::parse_expr)?;
+                        self.expect_token(&Token::RParen)?;
+                        by
+                    }
+                } else {
+                    vec![]
+                };
+                align = Some((value, to, by));
+            }
+            if self.parse_keyword(Keyword::FILL) {
+                if fill.is_some() {
+                    return Err(ParserError::ParserError(
+                        "Duplicate FILL keyword detected in SELECT clause.".into(),
+                    ));
+                }
+                fill = Some(self.next_token().to_string());
+            }
+        }
+        if align.is_none() && fill.is_some() {
+            return Err(ParserError::ParserError(
+                "ALIGN argument cannot be omitted in the range select query".into(),
+            ));
+        }
+        let projection = if let Some((align, to, by)) = align {
+            let fill = fill.unwrap_or_default();
+            let by_num = FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                Value::SingleQuotedString(by.len().to_string()),
+            )));
+            let mut fake_group_by = BTreeSet::new();
+            let by = by
+                .into_iter()
+                .map(|x| {
+                    collect_column_from_expr(&x, &mut fake_group_by, false);
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(x))
+                })
+                .collect::<Vec<_>>();
+            // range_fn(func, range, fill, byc, [byv], align, to)
+            // byc are length of variadic arguments [byv]
+            let mut rewrite_count = 0;
+            let mut align_fill_rewrite =
+                |expr: Expr, columns: &mut BTreeSet<Expr>| {
+                    rewrite_calculation_expr(&expr, true, &mut |e: &Expr| match e {
+                        Expr::Function(func) => {
+                            if let Some(name) = func.name.0.first() {
+                                if name.value.as_str() == "range_fn" {
+                                    let mut range_func = func.clone();
+                                    // remove aggr func args columns from group by
+                                    if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(expr))) =
+                                        range_func.args.first()
+                                    {
+                                        collect_column_from_expr(expr, columns, true);
+                                    }
+                                    // use global fill if fill not given in range select item
+                                    if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                        Expr::Value(Value::SingleQuotedString(value)),
+                                    ))) = range_func.args.last_mut()
+                                    {
+                                        if value.is_empty() {
+                                            *value = fill.clone();
+                                        }
+                                    }
+                                    range_func.args.push(by_num.clone());
+                                    range_func.args.extend(by.clone());
+                                    range_func.args.push(FunctionArg::Unnamed(
+                                        FunctionArgExpr::Expr(align.clone()),
+                                    ));
+                                    range_func.args.push(FunctionArg::Unnamed(
+                                        FunctionArgExpr::Expr(to.clone()),
+                                    ));
+                                    rewrite_count += 1;
+                                    return Ok(Some(Expr::Function(range_func)));
+                                }
+                            }
+                            Ok(None)
+                        }
+                        _ => Ok(None),
+                    })
+                };
+            let rewrite_projection = projection
+                .into_iter()
+                .map(|select_item| {
+                    if let SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } =
+                        &select_item
+                    {
+                        // collect all columns from select items
+                        collect_column_from_expr(expr, &mut fake_group_by, false);
+                    }
+                    match select_item {
+                        SelectItem::UnnamedExpr(expr) => Ok(SelectItem::UnnamedExpr(
+                            align_fill_rewrite(expr, &mut fake_group_by)?,
+                        )),
+                        SelectItem::ExprWithAlias { expr, alias } => {
+                            Ok(SelectItem::ExprWithAlias {
+                                expr: align_fill_rewrite(expr, &mut fake_group_by)?,
+                                alias,
+                            })
+                        }
+                        _ => Err(ParserError::ParserError(
+                            "Wildcard `*` is not allowed in range select query".into(),
+                        )),
+                    }
+                })
+                .collect::<Result<Vec<_>, ParserError>>()?;
+            if rewrite_count == 0 {
+                return Err(ParserError::ParserError(
+                    "Illegal Range select, no RANGE keyword found in any SelectItem".into(),
+                ));
+            } else {
+                group_by = GroupByExpr::Expressions(fake_group_by.into_iter().collect());
+            }
+            rewrite_projection
+        } else {
+            projection
         };
 
         let sort_by = if self.parse_keywords(&[Keyword::SORT, Keyword::BY]) {
@@ -9026,6 +9265,7 @@ impl<'a> Parser<'a> {
                 } else {
                     expr
                 };
+
                 self.parse_optional_alias(keywords::RESERVED_FOR_COLUMN_ALIAS)
                     .map(|alias| match alias {
                         Some(alias) => SelectItem::ExprWithAlias { expr, alias },
@@ -9893,6 +10133,167 @@ impl Word {
             quote_style: self.quote_style,
         }
     }
+}
+
+/// Recursively rewrite a nested calculation `Expr`
+///
+/// The function's return type is `Result<Option<Expr>>>`, where:
+///
+/// * `Ok(Some(replacement_expr))`: A replacement `Expr` is provided, use replacement `Expr`.
+/// * `Ok(None)`: A replacement `Expr` is not provided, use old `Expr`.
+/// * `Err(err)`: Any error returned.
+fn rewrite_calculation_expr<F>(
+    expr: &Expr,
+    rewrite_func_expr: bool,
+    replacement_fn: &mut F,
+) -> Result<Expr, ParserError>
+where
+    F: FnMut(&Expr) -> Result<Option<Expr>, ParserError>,
+{
+    match replacement_fn(expr)? {
+        Some(replacement) => Ok(replacement),
+        None => match expr {
+            Expr::BinaryOp { left, op, right } => Ok(Expr::BinaryOp {
+                left: Box::new(rewrite_calculation_expr(
+                    left,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                op: op.clone(),
+                right: Box::new(rewrite_calculation_expr(
+                    right,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+            }),
+            Expr::Nested(expr) => Ok(Expr::Nested(Box::new(rewrite_calculation_expr(
+                expr,
+                rewrite_func_expr,
+                replacement_fn,
+            )?))),
+            Expr::Cast {
+                expr,
+                data_type,
+                format,
+            } => Ok(Expr::Cast {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                data_type: data_type.clone(),
+                format: format.clone(),
+            }),
+            Expr::TryCast {
+                expr,
+                data_type,
+                format,
+            } => Ok(Expr::TryCast {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                data_type: data_type.clone(),
+                format: format.clone(),
+            }),
+            Expr::SafeCast {
+                expr,
+                data_type,
+                format,
+            } => Ok(Expr::SafeCast {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                data_type: data_type.clone(),
+                format: format.clone(),
+            }),
+            // Scalar function `ceil(val)` will be parse as `Expr::Ceil` instead of `Expr::Function`
+            Expr::Ceil { expr, field } => Ok(Expr::Ceil {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                field: field.clone(),
+            }),
+            // Scalar function `floor(val)` will be parse as `Expr::Floor` instead of `Expr::Function`
+            Expr::Floor { expr, field } => Ok(Expr::Floor {
+                expr: Box::new(rewrite_calculation_expr(
+                    expr,
+                    rewrite_func_expr,
+                    replacement_fn,
+                )?),
+                field: field.clone(),
+            }),
+            Expr::Function(func) if rewrite_func_expr => {
+                let mut func = func.clone();
+                for fn_arg in &mut func.args {
+                    if let FunctionArg::Named {
+                        arg: FunctionArgExpr::Expr(expr),
+                        ..
+                    }
+                    | FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = fn_arg
+                    {
+                        *expr = rewrite_calculation_expr(expr, rewrite_func_expr, replacement_fn)?;
+                    }
+                }
+                Ok(Expr::Function(func))
+            }
+            expr => Ok(expr.clone()),
+        },
+    }
+}
+
+// walk the whole expr to collect info
+fn walk_expr<F>(expr: &Expr, apply_fn: &mut F) -> Result<(), ParserError>
+where
+    F: FnMut(&Expr) -> Result<(), ParserError>,
+{
+    match expr {
+        Expr::BinaryOp { left, right, .. } => {
+            walk_expr(left, apply_fn)?;
+            walk_expr(right, apply_fn)?;
+        }
+        Expr::Nested(expr)
+        | Expr::Cast { expr, .. }
+        | Expr::TryCast { expr, .. }
+        | Expr::SafeCast { expr, .. }
+        | Expr::Ceil { expr, .. }
+        | Expr::Floor { expr, .. } => {
+            walk_expr(expr, apply_fn)?;
+        }
+        Expr::Function(func) => {
+            for fn_arg in &func.args {
+                if let FunctionArg::Named {
+                    arg: FunctionArgExpr::Expr(expr),
+                    ..
+                }
+                | FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = fn_arg
+                {
+                    walk_expr(expr, apply_fn)?;
+                }
+            }
+        }
+        _ => (),
+    };
+    apply_fn(expr)?;
+    Ok(())
+}
+
+fn collect_column_from_expr(expr: &Expr, columns: &mut BTreeSet<Expr>, remove: bool) {
+    let _ = walk_expr(expr, &mut |e| {
+        if matches!(e, Expr::CompoundIdentifier(_) | Expr::Identifier(_)) {
+            if remove {
+                columns.remove(e);
+            } else {
+                columns.insert(e.clone());
+            }
+        }
+        Ok(())
+    });
 }
 
 #[cfg(test)]
