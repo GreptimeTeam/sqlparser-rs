@@ -33,6 +33,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "visitor")]
 use sqlparser_derive::{Visit, VisitMut};
 
+use sqlparser_derive::DFConvert;
+
 /// Defines a string constant for a single keyword: `kw_def!(SELECT);`
 /// expands to `pub const SELECT = "SELECT";`
 macro_rules! kw_def {
@@ -48,15 +50,19 @@ macro_rules! kw_def {
 /// and defines an ALL_KEYWORDS array of the defined constants.
 macro_rules! define_keywords {
     ($(
-        $ident:ident $(= $string_keyword:expr)?
+        $ident:ident $(= $string_keyword:expr)? $( => $meta:meta)*
     ),*) => {
-        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+        #[df_path(df_sqlparser::keywords)]
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
         #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
         #[allow(non_camel_case_types)]
         pub enum Keyword {
             NoKeyword,
-            $($ident),*
+            $(
+                $(#[$meta])*
+                $ident,
+            )*
         }
 
         pub const ALL_KEYWORDS_INDEX: &[Keyword] = &[
@@ -87,6 +93,7 @@ define_keywords!(
     ALERT,
     ALGORITHM,
     ALIAS,
+    ALIGN  => ignore_item,
     ALL,
     ALLOCATE,
     ALTER,
@@ -346,7 +353,7 @@ define_keywords!(
     FILE,
     FILES,
     FILE_FORMAT,
-    FILL,
+    FILL => ignore_item,
     FILTER,
     FINAL,
     FIRST,
@@ -1038,6 +1045,9 @@ pub const RESERVED_FOR_TABLE_ALIAS: &[Keyword] = &[
     Keyword::SAMPLE,
     Keyword::TABLESAMPLE,
     Keyword::FROM,
+    // for GreptimeDB Range select
+    Keyword::ALIGN,
+    Keyword::FILL,
 ];
 
 /// Can't be used as a column alias, so that `SELECT <expr> alias`
@@ -1070,6 +1080,9 @@ pub const RESERVED_FOR_COLUMN_ALIAS: &[Keyword] = &[
     Keyword::FROM,
     Keyword::INTO,
     Keyword::END,
+    // for GreptimeDB Range select
+    Keyword::RANGE,
+    Keyword::FILL,
 ];
 
 // Global list of reserved keywords alloweed after FROM.

@@ -25,20 +25,23 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::fmt::Formatter;
 
+use crate::ast::Convert;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-
+use sqlparser_derive::DFConvert;
 #[cfg(feature = "visitor")]
 use sqlparser_derive::{Visit, VisitMut};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, DFConvert)]
+#[df_path(df_sqlparser::ast::helpers::key_value_options)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct KeyValueOptions {
     pub options: Vec<KeyValueOption>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, DFConvert)]
+#[df_path(df_sqlparser::ast::helpers::key_value_options)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum KeyValueOptionType {
@@ -48,7 +51,8 @@ pub enum KeyValueOptionType {
     NUMBER,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, DFConvert)]
+#[df_path(df_sqlparser::ast::helpers::key_value_options)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct KeyValueOption {
