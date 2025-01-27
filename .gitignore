@@ -16,3 +16,6 @@ Cargo.lock
 .vscode
 
 *.swp
+
+# Mac DS_Store
+**/*.DS_Store
