@@ -918,6 +918,7 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_prefix()?;
         debug!("prefix: {:?}", expr);
         loop {
+            expr = self.parse_within_filter(expr)?;
             expr = self.parse_range_expr(expr)?;
             let next_precedence = self.get_next_precedence()?;
             debug!("next precedence: {:?}", next_precedence);
@@ -929,6 +930,33 @@ impl<'a> Parser<'a> {
             expr = self.parse_infix(expr, next_precedence)?;
         }
         Ok(expr)
+    }
+
+    /// Parse within syntax like `select * from monitor where ts within '2025-01'`
+    fn parse_within_filter(&mut self, expr: Expr) -> Result<Expr, ParserError> {
+        if !self.parse_keyword(Keyword::WITHIN) {
+            return Ok(expr);
+        }
+        let Expr::Identifier(ident) = expr else {
+            return Ok(expr);
+        };
+        let value = self.parse_value()?;
+        Ok(Expr::Function(Function {
+            name: ObjectName(vec![Ident::new("within_filter")]),
+            args: FunctionArguments::List(FunctionArgumentList {
+                duplicate_treatment: None,
+                args: vec![
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(ident))),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(value))),
+                ],
+                clauses: vec![],
+            }),
+            filter: None,
+            null_treatment: None,
+            over: None,
+            parameters: FunctionArguments::None,
+            within_group: vec![],
+        }))
     }
 
     /// Parse Range clause with format `RANGE [ Duration literal | (INTERVAL [interval expr]) ] FILL [ NULL | PREV .....]`
@@ -13432,5 +13460,84 @@ mod tests {
         let sql = r#"REPLACE"#;
 
         assert!(Parser::parse_sql(&MySqlDialect {}, sql).is_err());
+    }
+
+    #[test]
+    fn test_within_filter() {
+        //            args: FunctionArguments::List(FunctionArgumentList { duplicate_treatment: None, args: vec![                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(ident))),
+        //FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(value))),], clauses: vec![] }),
+
+        let sql = "select * from monitors where ts within '2024';";
+        let mut parser = Parser::new(&GenericDialect {}).try_with_sql(sql).unwrap();
+        let result = parser.parse_query().unwrap();
+        if let SetExpr::Select(select) = result.body.as_ref() {
+            let expected = &select.selection;
+            assert_eq!(
+                expected,
+                &Some(Expr::Function(Function {
+                    name: ObjectName(vec![Ident::new("within_filter")]),
+                    args: FunctionArguments::List(FunctionArgumentList {
+                        duplicate_treatment: None,
+                        args: vec![
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(
+                                Ident::new("ts")
+                            ))),
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                Value::SingleQuotedString("2024".to_string())
+                            )))
+                        ],
+                        clauses: vec![]
+                    }),
+                    filter: None,
+                    null_treatment: None,
+                    over: None,
+                    parameters: FunctionArguments::None,
+                    within_group: vec![],
+                }))
+            );
+        } else {
+            unreachable!();
+        }
+        let sql = "select * from monitors where ts within '1915' and memory < 1024;";
+        let mut parser = Parser::new(&GenericDialect {}).try_with_sql(sql).unwrap();
+        let result = parser.parse_query().unwrap();
+        if let SetExpr::Select(select) = result.body.as_ref() {
+            let expected = &select.selection;
+            let within_expr = Expr::Function(Function {
+                name: ObjectName(vec![Ident::new("within_filter")]),
+                args: FunctionArguments::List(FunctionArgumentList {
+                    duplicate_treatment: None,
+                    args: vec![
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(Ident::new(
+                            "ts",
+                        )))),
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                            Value::SingleQuotedString("1915".to_string()),
+                        ))),
+                    ],
+                    clauses: vec![],
+                }),
+                filter: None,
+                null_treatment: None,
+                over: None,
+                parameters: FunctionArguments::None,
+                within_group: vec![],
+            });
+            let right = Expr::BinaryOp {
+                left: Box::new(Expr::Identifier(Ident::new("memory"))),
+                op: BinaryOperator::Lt,
+                right: Box::new(Expr::Value(Value::Number("1024".to_string(), false))),
+            };
+            assert_eq!(
+                expected,
+                &Some(Expr::BinaryOp {
+                    left: Box::new(within_expr),
+                    op: BinaryOperator::And,
+                    right: Box::new(right)
+                })
+            );
+        } else {
+            unreachable!();
+        }
     }
 }
