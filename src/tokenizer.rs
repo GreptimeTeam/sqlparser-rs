@@ -33,7 +33,6 @@ use core::num::NonZeroU8;
 use core::str::Chars;
 use core::{cmp, fmt};
 use core::{iter::Peekable, str};
-use sqlparser_derive::DFConvert;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -52,11 +51,8 @@ use crate::{
     dialect::HiveDialect,
 };
 
-use crate::ast::Convert;
-
 /// SQL Token enumeration
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
-#[df_path(df_sqlparser::tokenizer)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum Token {
@@ -438,8 +434,7 @@ impl Token {
 }
 
 /// A keyword (like SELECT) or an optionally quoted SQL identifier
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
-#[df_path(df_sqlparser::tokenizer)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct Word {
@@ -533,8 +528,7 @@ impl fmt::Display for Whitespace {
 /// # use sqlparser::tokenizer::Location;
 /// let location = Location::from((1, 1));
 /// ```
-#[derive(Eq, PartialEq, Hash, Clone, Copy, Ord, PartialOrd, DFConvert)]
-#[df_path(df_sqlparser::tokenizer)]
+#[derive(Eq, PartialEq, Hash, Clone, Copy, Ord, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct Location {
@@ -597,8 +591,7 @@ impl From<(u64, u64)> for Location {
 /// A span represents a linear portion of the input string (start, end)
 ///
 /// See [Spanned](crate::ast::Spanned) for more information.
-#[derive(Eq, PartialEq, Hash, Clone, PartialOrd, Ord, Copy, DFConvert)]
-#[df_path(df_sqlparser::tokenizer)]
+#[derive(Eq, PartialEq, Hash, Clone, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct Span {
@@ -723,8 +716,7 @@ pub type TokenWithLocation = TokenWithSpan;
 /// // same token but different locations are not equal
 /// assert_ne!(tok1, tok2);
 /// ```
-#[derive(Debug, Clone, Hash, Ord, PartialOrd, Eq, PartialEq, DFConvert)]
-#[df_path(df_sqlparser::tokenizer)]
+#[derive(Debug, Clone, Hash, Ord, PartialOrd, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// A `Token` together with its `Span` (location in the source).

@@ -35,8 +35,6 @@ use serde::{Deserialize, Serialize};
 use sqlparser_derive::{Visit, VisitMut};
 
 use crate::ast::value::escape_single_quote_string;
-use crate::ast::Convert;
-use crate::ast::DFConvert;
 use crate::ast::{
     display_comma_separated, display_separated,
     table_constraints::{
@@ -123,7 +121,7 @@ impl fmt::Display for ReplicaIdentity {
 }
 
 /// An `ALTER TABLE` (`Statement::AlterTable`) operation
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTableOperation {
@@ -535,7 +533,7 @@ pub enum AlterTableOperation {
 /// An `ALTER Policy` (`Statement::AlterPolicy`) operation
 ///
 /// [PostgreSQL Documentation](https://www.postgresql.org/docs/current/sql-altertable.html)
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterPolicyOperation {
@@ -665,7 +663,7 @@ impl fmt::Display for Owner {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// New connector owner specification for `ALTER CONNECTOR ... OWNER TO ...`
@@ -685,7 +683,7 @@ impl fmt::Display for AlterConnectorOwner {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// Alterations that can be applied to an index.
@@ -1254,7 +1252,7 @@ impl fmt::Display for OperatorOption {
 }
 
 /// An `ALTER COLUMN` (`Statement::AlterTable`) operation
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterColumnOperation {
@@ -1349,7 +1347,7 @@ impl fmt::Display for AlterColumnOperation {
 /// statements of `MySQL` [(1)].
 ///
 /// [1]: https://dev.mysql.com/doc/refman/8.0/en/create-table.html
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum KeyOrIndexDisplay {
@@ -1487,7 +1485,7 @@ impl fmt::Display for NullsDistinctOption {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// A parameter of a stored procedure or function declaration.
@@ -1519,7 +1517,7 @@ impl fmt::Display for ProcedureParam {
 }
 
 /// SQL column definition
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ColumnDef {
@@ -1561,7 +1559,7 @@ impl fmt::Display for ColumnDef {
 /// amount COMMENT 'The total amount for the order line'
 /// created_at DateTime64
 /// ```
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ViewColumnDef {
@@ -1630,7 +1628,7 @@ impl fmt::Display for ViewColumnDef {
 /// For maximum flexibility, we don't distinguish between constraint and
 /// non-constraint options, lumping them all together under the umbrella of
 /// "column options," and we allow any column option to be named.
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ColumnOptionDef {
@@ -1653,7 +1651,7 @@ impl fmt::Display for ColumnOptionDef {
 /// ```
 /// [MS SQL Server]: https://learn.microsoft.com/en-us/sql/t-sql/statements/create-table-transact-sql-identity-property
 /// [Snowflake]: https://docs.snowflake.com/en/sql-reference/sql/create-table
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum IdentityPropertyKind {
@@ -1722,7 +1720,7 @@ pub struct IdentityProperty {
 /// ```
 /// [MS SQL Server]: https://learn.microsoft.com/en-us/sql/t-sql/statements/create-table-transact-sql-identity-property
 /// [Snowflake]: https://docs.snowflake.com/en/sql-reference/sql/create-table
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum IdentityPropertyFormatKind {
@@ -1802,7 +1800,7 @@ impl fmt::Display for IdentityPropertyOrder {
 /// [ WITH ] PROJECTION POLICY <policy_name>
 /// ```
 /// [Snowflake]: https://docs.snowflake.com/en/sql-reference/sql/create-table
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum ColumnPolicy {
@@ -1829,7 +1827,7 @@ impl fmt::Display for ColumnPolicy {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// Properties describing a column policy (masking or projection).
@@ -1853,7 +1851,7 @@ pub struct ColumnPolicyProperty {
 /// [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , <tag_name> = '<tag_value>' , ... ] )
 /// ```
 /// [Snowflake]: https://docs.snowflake.com/en/sql-reference/sql/create-table
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct TagsColumnOption {
@@ -1880,7 +1878,7 @@ impl fmt::Display for TagsColumnOption {
 
 /// `ColumnOption`s are modifiers that follow a column definition in a `CREATE
 /// TABLE` statement.
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum ColumnOption {
@@ -2219,7 +2217,7 @@ pub(crate) fn display_option_spaced<T: fmt::Display>(option: &Option<T>) -> impl
 /// `<constraint_characteristics> = [ DEFERRABLE | NOT DEFERRABLE ] [ INITIALLY DEFERRED | INITIALLY IMMEDIATE ] [ ENFORCED | NOT ENFORCED ]`
 ///
 /// Used in UNIQUE and foreign key constraints. The individual settings may occur in any order.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ConstraintCharacteristics {
@@ -2299,7 +2297,7 @@ impl fmt::Display for ConstraintCharacteristics {
 /// { RESTRICT | CASCADE | SET NULL | NO ACTION | SET DEFAULT }`
 ///
 /// Used in foreign key constraints in `ON UPDATE` and `ON DELETE` options.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum ReferentialAction {
@@ -2330,7 +2328,7 @@ impl fmt::Display for ReferentialAction {
 /// `<drop behavior> ::= CASCADE | RESTRICT`.
 ///
 /// Used in `DROP` statements.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum DropBehavior {
@@ -2350,7 +2348,7 @@ impl fmt::Display for DropBehavior {
 }
 
 /// SQL user defined type definition
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum UserDefinedTypeRepresentation {
@@ -2405,7 +2403,7 @@ impl fmt::Display for UserDefinedTypeRepresentation {
 }
 
 /// SQL user defined type attribute definition
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct UserDefinedTypeCompositeAttributeDef {
@@ -2712,7 +2710,7 @@ impl fmt::Display for UserDefinedTypeSqlDefinitionOption {
 /// PARTITION statement used in ALTER TABLE et al. such as in Hive and ClickHouse SQL.
 /// For example, ClickHouse's OPTIMIZE TABLE supports syntax like PARTITION ID 'partition_id' and PARTITION expr.
 /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/optimize)
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, DFConvert)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum Partition {
@@ -2742,7 +2740,7 @@ impl fmt::Display for Partition {
 
 /// DEDUPLICATE statement used in OPTIMIZE TABLE et al. such as in ClickHouse SQL
 /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/optimize)
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum Deduplicate {
@@ -2765,7 +2763,7 @@ impl fmt::Display for Deduplicate {
 /// Syntax: `CLUSTERED BY (col_name, ...) [SORTED BY (col_name [ASC|DESC], ...)] INTO num_buckets BUCKETS`
 ///
 /// [Hive](https://cwiki.apache.org/confluence/display/Hive/LanguageManual+DDL#LanguageManualDDL-CreateTable)
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ClusteredBy {

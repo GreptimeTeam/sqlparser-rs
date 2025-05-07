@@ -20,14 +20,14 @@ use alloc::{
     vec,
     vec::Vec,
 };
-#[cfg(feature = "bigdecimal-sql")]
+#[cfg(feature = "bigdecimal")]
 use bigdecimal::BigDecimal;
 use core::{
     fmt::{self, Display},
     str::FromStr,
 };
 use helpers::attached_token::AttachedToken;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use log::debug;
 
@@ -1382,7 +1382,7 @@ impl<'a> Parser<'a> {
                 self.expect_token(&Token::RParen)?;
                 expr
             } else if let Ok(value) = self.parse_value() {
-                value.verify_duration()?;
+                value.value.verify_duration()?;
                 Expr::Value(value)
             } else {
                 self.index = index;
@@ -1412,10 +1412,10 @@ impl<'a> Parser<'a> {
                 let args = vec![
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(e.clone())),
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(range.clone())),
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(fill.clone()))),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(fill.clone().into()))),
                 ];
                 let range_func = Function {
-                    name: ObjectName(vec![Ident::new("range_fn")]),
+                    name: vec![Ident::new("range_fn")].into(),
                     over: None,
                     filter: None,
                     null_treatment: None,
@@ -1436,27 +1436,9 @@ impl<'a> Parser<'a> {
         })?;
         if rewrite_count == 0 {
             return Err(ParserError::ParserError(format!(
-                "Can't use the RANGE keyword in Expr {} without function",
-                expr
+                "Can't use the RANGE keyword in Expr {expr} without function"
             )));
         }
-        Ok(expr)
-    }
-
-    pub fn parse_interval_expr(&mut self) -> Result<Expr, ParserError> {
-        let precedence = 0;
-        let mut expr = self.parse_prefix()?;
-
-        loop {
-            let next_precedence = self.get_next_interval_precedence()?;
-
-            if precedence >= next_precedence {
-                break;
-            }
-
-            expr = self.parse_infix(expr, next_precedence)?;
-        }
-
         Ok(expr)
     }
 
@@ -3382,10 +3364,15 @@ impl<'a> Parser<'a> {
         }
 
         // Parse the struct values `(expr1 [, ... ])`
-        self.expect_token(&Token::LParen)?;
-        let values = self
-            .parse_comma_separated(|parser| parser.parse_struct_field_expr(!fields.is_empty()))?;
-        self.expect_token(&Token::RParen)?;
+        let values = if self.consume_token(&Token::LParen) {
+            let values = self.parse_comma_separated(|parser| {
+                parser.parse_struct_field_expr(!fields.is_empty())
+            })?;
+            self.expect_token(&Token::RParen)?;
+            values
+        } else {
+            vec![]
+        };
 
         Ok(Expr::Struct { values, fields })
     }
@@ -14205,7 +14192,7 @@ impl<'a> Parser<'a> {
                     expr
                 } else {
                     let value = self.parse_value()?;
-                    value.verify_duration()?;
+                    value.value.verify_duration()?;
                     Expr::Value(value)
                 };
                 let to = if self.parse_keyword(Keyword::TO) {
@@ -14215,12 +14202,15 @@ impl<'a> Parser<'a> {
                         expr
                     } else {
                         let value = self.next_token().to_string();
-                        Expr::Value(Value::SingleQuotedString(
-                            value.trim_matches(|x| x == '\'' || x == '"').to_string(),
-                        ))
+                        Expr::Value(
+                            Value::SingleQuotedString(
+                                value.trim_matches(|x| x == '\'' || x == '"').to_string(),
+                            )
+                            .into(),
+                        )
                     }
                 } else {
-                    Expr::Value(Value::SingleQuotedString(String::new()))
+                    Expr::Value(Value::SingleQuotedString(String::new()).into())
                 };
                 let by = if self.parse_keyword(Keyword::BY) {
                     self.expect_token(&Token::LParen)?;
@@ -14230,13 +14220,15 @@ impl<'a> Parser<'a> {
                         // All data will be aggregated into a group, which is equivalent to using a random constant as the aggregation key.
                         // Therefore, in this case, the constant 1 is used directly as the aggregation key.
                         // `()` == `(1)`
-                        #[cfg(not(feature = "bigdecimal-sql"))]
+                        #[cfg(not(feature = "bigdecimal"))]
                         {
-                            vec![Expr::Value(Value::Number("1".into(), false))]
+                            vec![Expr::Value(Value::Number("1".into(), false).into())]
                         }
-                        #[cfg(feature = "bigdecimal-sql")]
+                        #[cfg(feature = "bigdecimal")]
                         {
-                            vec![Expr::Value(Value::Number(BigDecimal::from(1), false))]
+                            vec![Expr::Value(
+                                Value::Number(BigDecimal::from(1), false).into(),
+                            )]
                         }
                     } else {
                         let by = self.parse_comma_separated(Parser::parse_expr)?;
@@ -14265,9 +14257,9 @@ impl<'a> Parser<'a> {
         let projection = if let Some((align, to, by)) = align {
             let fill = fill.unwrap_or_default();
             let by_num = FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                Value::SingleQuotedString(by.len().to_string()),
+                Value::SingleQuotedString(by.len().to_string()).into(),
             )));
-            let mut fake_group_by = HashSet::new();
+            let mut fake_group_by = BTreeSet::new();
             let by = by
                 .into_iter()
                 .map(|x| {
@@ -14278,11 +14270,11 @@ impl<'a> Parser<'a> {
             // range_fn(func, range, fill, byc, [byv], align, to)
             // byc are length of variadic arguments [byv]
             let mut rewrite_count = 0;
-            let mut align_fill_rewrite = |expr: Expr, columns: &mut HashSet<Expr>| {
+            let mut align_fill_rewrite = |expr: Expr, columns: &mut BTreeSet<Expr>| {
                 rewrite_calculation_expr(&expr, true, &mut |e: &Expr| match e {
                     Expr::Function(func) => {
                         if let Some(name) = func.name.0.first() {
-                            if name.value.as_str() == "range_fn" {
+                            if name.to_string() == "range_fn" {
                                 let mut range_func = func.clone();
                                 let FunctionArguments::List(args) = &mut range_func.args else {
                                     unreachable!()
@@ -14295,7 +14287,10 @@ impl<'a> Parser<'a> {
                                 }
                                 // use global fill if fill not given in range select item
                                 if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                    Expr::Value(Value::SingleQuotedString(value)),
+                                    Expr::Value(ValueWithSpan {
+                                        value: Value::SingleQuotedString(value),
+                                        ..
+                                    }),
                                 ))) = args.args.last_mut()
                                 {
                                     if value.is_empty() {
@@ -14358,7 +14353,7 @@ impl<'a> Parser<'a> {
                 rewrite_calculation_expr(expr, true, &mut |e: &Expr| match e {
                     Expr::Function(func) => {
                         if let Some(name) = func.name.0.first() {
-                            if name.value.as_str() == "range_fn" {
+                            if name.to_string() == "range_fn" {
                                 let FunctionArguments::List(args) = &func.args else {
                                     unreachable!()
                                 };
@@ -14379,11 +14374,8 @@ impl<'a> Parser<'a> {
             projection
                 .iter()
                 .map(|select_item| {
-                    match select_item {
-                        SelectItem::UnnamedExpr(expr) => {
-                            align_fill_validate(expr)?;
-                        }
-                        _ => {}
+                    if let SelectItem::UnnamedExpr(expr) = select_item {
+                        align_fill_validate(expr)?;
                     }
                     Ok(())
                 })
@@ -14761,7 +14753,8 @@ impl<'a> Parser<'a> {
         Ok(SetAssignment { scope, name, value })
     }
 
-    fn parse_set(&mut self) -> Result<Statement, ParserError> {
+    /// Parse `SET` statement.
+    pub fn parse_set(&mut self) -> Result<Statement, ParserError> {
         let hivevar = self.parse_keyword(Keyword::HIVEVAR);
 
         // Modifier is either HIVEVAR: or a ContextModifier (LOCAL, SESSION, etc), not both
@@ -19782,6 +19775,7 @@ impl Word {
 /// * `Ok(Some(replacement_expr))`: A replacement `Expr` is provided, use replacement `Expr`.
 /// * `Ok(None)`: A replacement `Expr` is not provided, use old `Expr`.
 /// * `Err(err)`: Any error returned.
+#[cfg_attr(feature = "recursive-protection", recursive::recursive)]
 fn rewrite_calculation_expr<F>(
     expr: &Expr,
     rewrite_func_expr: bool,
@@ -19815,6 +19809,7 @@ where
                 kind,
                 expr,
                 data_type,
+                array,
                 format,
             } => Ok(Expr::Cast {
                 kind: kind.clone(),
@@ -19824,6 +19819,7 @@ where
                     replacement_fn,
                 )?),
                 data_type: data_type.clone(),
+                array: *array,
                 format: format.clone(),
             }),
             // Scalar function `ceil(val)` will be parse as `Expr::Ceil` instead of `Expr::Function`
@@ -19903,7 +19899,7 @@ where
     Ok(())
 }
 
-fn collect_column_from_expr(expr: &Expr, columns: &mut HashSet<Expr>, remove: bool) {
+fn collect_column_from_expr(expr: &Expr, columns: &mut BTreeSet<Expr>, remove: bool) {
     let _ = walk_expr(expr, &mut |e| {
         if matches!(e, Expr::CompoundIdentifier(_) | Expr::Identifier(_)) {
             if remove {

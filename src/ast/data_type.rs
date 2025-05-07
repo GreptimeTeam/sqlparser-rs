@@ -29,10 +29,7 @@ use crate::ast::{display_comma_separated, Expr, ObjectName, StructField, UnionFi
 
 use super::{value::escape_single_quote_string, ColumnDef};
 
-use crate::ast::Convert;
-use crate::ast::DFConvert;
-
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// A member of an ENUM type.
@@ -46,7 +43,7 @@ pub enum EnumMember {
 }
 
 /// SQL data types
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum DataType {
@@ -911,7 +908,7 @@ pub enum StructBracketKind {
 ///
 /// This is more related to a display information than real differences between each variant. To
 /// guarantee compatibility with the input query we must maintain its exact information.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum TimezoneInfo {
@@ -1045,7 +1042,7 @@ impl fmt::Display for ExactNumberInfo {
 /// Information about [character length][1], including length and possibly unit.
 ///
 /// [1]: https://jakewheat.github.io/sql-overview/sql-2016-foundation-grammar.html#character-length
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum CharacterLength {
@@ -1080,7 +1077,7 @@ impl fmt::Display for CharacterLength {
 /// Possible units for characters, initially based on 2016 ANSI [SQL Standard][1].
 ///
 /// [1]: https://jakewheat.github.io/sql-overview/sql-2016-foundation-grammar.html#char-length-units
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum CharLengthUnits {
@@ -1137,7 +1134,7 @@ impl fmt::Display for BinaryLength {
 /// the syntax used to declare the array.
 ///
 /// For example: Bigquery/Hive use `ARRAY<INT>` whereas snowflake uses ARRAY.
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum ArrayElemTypeDef {

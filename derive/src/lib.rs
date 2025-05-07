@@ -21,20 +21,16 @@
 //! - [`Visit`] and [`VisitMut`] derive macros for AST traversal.
 //! - [`derive_dialect!`] macro for creating custom SQL dialects.
 
+use proc_macro2::Literal;
 use quote::quote;
+use quote::{quote_spanned, ToTokens};
 use syn::parse_macro_input;
-use proc_macro2::{Literal, TokenStream};
-use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::spanned::Spanned;
-use syn::{
-    parse::{Parse, ParseStream},
-    parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Fields, GenericParam, Generics,
-    Ident, Index, LitStr, Meta, Token, Type, TypePath,
-};
 use syn::{
     AngleBracketedGenericArguments, DataEnum, DataStruct, FieldsNamed, FieldsUnnamed,
     GenericArgument, MetaList, Path, PathArguments, PathSegment,
 };
+use syn::{Attribute, Data, DeriveInput, Fields, Ident, Meta, Type, TypePath};
 
 mod dialect;
 mod visit;

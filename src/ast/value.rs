@@ -20,7 +20,7 @@ use alloc::string::String;
 
 use core::fmt;
 
-#[cfg(feature = "bigdecimal-sql")]
+#[cfg(feature = "bigdecimal")]
 use bigdecimal::BigDecimal;
 
 #[cfg(feature = "serde")]
@@ -34,9 +34,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 use crate::parser::ParserError;
-
-use crate::ast::Convert;
-use crate::ast::DFConvert;
 
 /// Wraps a primitive SQL [`Value`]  with its [`Span`] location
 ///
@@ -120,7 +117,7 @@ impl From<ValueWithSpan> for Value {
 }
 
 /// Primitive SQL values such as number and string
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "visitor",
