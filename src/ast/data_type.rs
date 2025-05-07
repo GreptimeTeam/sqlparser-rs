@@ -912,7 +912,7 @@ impl fmt::Display for CharLengthUnits {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum BinaryLength {
@@ -960,7 +960,7 @@ pub enum ArrayElemTypeDef {
 /// PostgreSQL/Redshift for spatial operations and geometry-related computations.
 ///
 /// [Postgres]: https://www.postgresql.org/docs/9.5/functions-geometry.html
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, DFConvert)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum GeometricTypeKind {
