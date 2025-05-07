@@ -1269,7 +1269,7 @@ impl<'a> Parser<'a> {
                 self.expect_token(&Token::RParen)?;
                 expr
             } else if let Ok(value) = self.parse_value() {
-                value.verify_duration()?;
+                value.value.verify_duration()?;
                 Expr::Value(value)
             } else {
                 self.index = index;
@@ -1299,10 +1299,10 @@ impl<'a> Parser<'a> {
                 let args = vec![
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(e.clone())),
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(range.clone())),
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(fill.clone()))),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(fill.clone().into()))),
                 ];
                 let range_func = Function {
-                    name: ObjectName(vec![Ident::new("range_fn")]),
+                    name: vec![Ident::new("range_fn")].into(),
                     over: None,
                     filter: None,
                     null_treatment: None,
@@ -12011,7 +12011,7 @@ impl<'a> Parser<'a> {
                     expr
                 } else {
                     let value = self.parse_value()?;
-                    value.verify_duration()?;
+                    value.value.verify_duration()?;
                     Expr::Value(value)
                 };
                 let to = if self.parse_keyword(Keyword::TO) {
@@ -12021,12 +12021,15 @@ impl<'a> Parser<'a> {
                         expr
                     } else {
                         let value = self.next_token().to_string();
-                        Expr::Value(Value::SingleQuotedString(
-                            value.trim_matches(|x| x == '\'' || x == '"').to_string(),
-                        ))
+                        Expr::Value(
+                            Value::SingleQuotedString(
+                                value.trim_matches(|x| x == '\'' || x == '"').to_string(),
+                            )
+                            .into(),
+                        )
                     }
                 } else {
-                    Expr::Value(Value::SingleQuotedString(String::new()))
+                    Expr::Value(Value::SingleQuotedString(String::new()).into())
                 };
                 let by = if self.parse_keyword(Keyword::BY) {
                     self.expect_token(&Token::LParen)?;
@@ -12038,11 +12041,13 @@ impl<'a> Parser<'a> {
                         // `()` == `(1)`
                         #[cfg(not(feature = "bigdecimal-sql"))]
                         {
-                            vec![Expr::Value(Value::Number("1".into(), false))]
+                            vec![Expr::Value(Value::Number("1".into(), false).into())]
                         }
                         #[cfg(feature = "bigdecimal-sql")]
                         {
-                            vec![Expr::Value(Value::Number(BigDecimal::from(1), false))]
+                            vec![Expr::Value(
+                                Value::Number(BigDecimal::from(1), false).into(),
+                            )]
                         }
                     } else {
                         let by = self.parse_comma_separated(Parser::parse_expr)?;
@@ -12071,7 +12076,7 @@ impl<'a> Parser<'a> {
         let projection = if let Some((align, to, by)) = align {
             let fill = fill.unwrap_or_default();
             let by_num = FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                Value::SingleQuotedString(by.len().to_string()),
+                Value::SingleQuotedString(by.len().to_string()).into(),
             )));
             let mut fake_group_by = HashSet::new();
             let by = by
@@ -12088,7 +12093,7 @@ impl<'a> Parser<'a> {
                 rewrite_calculation_expr(&expr, true, &mut |e: &Expr| match e {
                     Expr::Function(func) => {
                         if let Some(name) = func.name.0.first() {
-                            if name.value.as_str() == "range_fn" {
+                            if name.to_string() == "range_fn" {
                                 let mut range_func = func.clone();
                                 let FunctionArguments::List(args) = &mut range_func.args else {
                                     unreachable!()
@@ -12101,7 +12106,10 @@ impl<'a> Parser<'a> {
                                 }
                                 // use global fill if fill not given in range select item
                                 if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                    Expr::Value(Value::SingleQuotedString(value)),
+                                    Expr::Value(ValueWithSpan {
+                                        value: Value::SingleQuotedString(value),
+                                        ..
+                                    }),
                                 ))) = args.args.last_mut()
                                 {
                                     if value.is_empty() {
@@ -12164,7 +12172,7 @@ impl<'a> Parser<'a> {
                 rewrite_calculation_expr(expr, true, &mut |e: &Expr| match e {
                     Expr::Function(func) => {
                         if let Some(name) = func.name.0.first() {
-                            if name.value.as_str() == "range_fn" {
+                            if name.to_string() == "range_fn" {
                                 let FunctionArguments::List(args) = &func.args else {
                                     unreachable!()
                                 };
@@ -12185,11 +12193,8 @@ impl<'a> Parser<'a> {
             projection
                 .iter()
                 .map(|select_item| {
-                    match select_item {
-                        SelectItem::UnnamedExpr(expr) => {
-                            align_fill_validate(expr)?;
-                        }
-                        _ => {}
+                    if let SelectItem::UnnamedExpr(expr) = select_item {
+                        align_fill_validate(expr)?;
                     }
                     Ok(())
                 })

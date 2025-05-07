@@ -72,7 +72,7 @@ use crate::ast::DFConvert;
 /// // convert back to `Value`
 /// let value: Value = value_with_span.into();
 /// ```
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, DFConvert)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ValueWithSpan {
