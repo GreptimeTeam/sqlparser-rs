@@ -1525,13 +1525,13 @@ fn parse_escaped_single_quote_string_predicate_with_no_escape() {
 fn parse_number() {
     let expr = verified_expr("1.0");
 
-    #[cfg(feature = "bigdecimal-sql")]
+    #[cfg(feature = "bigdecimal")]
     assert_eq!(
         expr,
         Expr::Value((Value::Number(bigdecimal::BigDecimal::from(1), false)).with_empty_span())
     );
 
-    #[cfg(not(feature = "bigdecimal-sql"))]
+    #[cfg(not(feature = "bigdecimal"))]
     assert_eq!(
         expr,
         Expr::Value((Value::Number("1.0".into(), false)).with_empty_span())
@@ -17912,13 +17912,18 @@ fn assert_sql(input: &str, expected: &str) {
 }
 
 fn assert_sql_err(input: &str, expected: &str) {
-    let res = parse_sql_statements(input);
+    // For "RANGE" SQL, we only interested in these dialects:
+    let dialects = TestedDialects::new(vec![
+        Box::new(GenericDialect {}),
+        Box::new(PostgreSqlDialect {}),
+        Box::new(AnsiDialect {}),
+        Box::new(MySqlDialect {}),
+    ]);
+    let res = dialects.parse_sql_statements(input);
     let res_str = format!("{:?}", res.unwrap_err());
     assert!(
         res_str.contains(expected),
-        "`{}` doesn't contains `{}`",
-        res_str,
-        expected
+        "`{res_str}` doesn't contains `{expected}`"
     );
 }
 
@@ -18084,14 +18089,14 @@ fn parse_range_in_expr() {
     );
 
     // Legal syntax but illegal semantic, nested range semantics are problematic, leave semantic problem to greptimedb
-    assert_sql(
-        "SELECT rate(max(a) RANGE '6m') RANGE '6m' + 1 FROM t ALIGN '1h' FILL NULL;",
+    assert_sql_err(
         "SELECT range_fn(rate(range_fn(max(a), '6m', '')), '6m', 'NULL', '0', '1h', '') + 1 FROM t",
+        "ALIGN argument cannot be omitted in the range select query",
     );
 
     assert_sql_err(
         "SELECT rate(a) RANGE '6m' RANGE '6m' + 1 FROM t ALIGN '1h' FILL NULL;",
-        "Expected: end of statement, found: RANGE",
+        "ALIGN argument cannot be omitted in the range select query",
     );
 
     assert_sql_err(

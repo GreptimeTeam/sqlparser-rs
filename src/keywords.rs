@@ -33,8 +33,6 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "visitor")]
 use sqlparser_derive::{Visit, VisitMut};
 
-use sqlparser_derive::DFConvert;
-
 /// Defines a string constant for a single keyword: `kw_def!(SELECT);`
 /// expands to `pub const SELECT = "SELECT";`
 macro_rules! kw_def {
@@ -52,8 +50,7 @@ macro_rules! define_keywords {
     ($(
         $ident:ident $(= $string_keyword:expr)? $( => $meta:meta)*
     ),*) => {
-        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
-        #[df_path(df_sqlparser::keywords)]
+        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
         #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
         #[allow(non_camel_case_types)]
@@ -401,7 +398,7 @@ define_keywords!(
     FILE,
     FILES,
     FILE_FORMAT,
-    FILL => ignore_item,
+    FILL,
     FILTER,
     FINAL,
     FIRST,

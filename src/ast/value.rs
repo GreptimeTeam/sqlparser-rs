@@ -20,7 +20,7 @@ use alloc::string::String;
 
 use core::fmt;
 
-#[cfg(feature = "bigdecimal-sql")]
+#[cfg(feature = "bigdecimal")]
 use bigdecimal::BigDecimal;
 
 #[cfg(feature = "serde")]
@@ -34,9 +34,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 use crate::parser::ParserError;
-
-use crate::ast::Convert;
-use crate::ast::DFConvert;
 
 /// Wraps a primitive SQL [`Value`]  with its [`Span`] location
 ///
@@ -117,7 +114,7 @@ impl From<ValueWithSpan> for Value {
 }
 
 /// Primitive SQL values such as number and string
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "visitor",
@@ -126,9 +123,9 @@ impl From<ValueWithSpan> for Value {
 )]
 pub enum Value {
     /// Numeric literal
-    #[cfg(not(feature = "bigdecimal-sql"))]
+    #[cfg(not(feature = "bigdecimal"))]
     Number(String, bool),
-    #[cfg(feature = "bigdecimal-sql")]
+    #[cfg(feature = "bigdecimal")]
     // HINT: use `test_utils::number` to make an instance of
     // Value::Number This might help if you your tests pass locally
     // but fail on CI with the `--all-features` flag enabled
@@ -266,7 +263,7 @@ impl fmt::Display for Value {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct DollarQuotedString {
@@ -287,7 +284,7 @@ impl fmt::Display for DollarQuotedString {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum DateTimeField {
@@ -407,7 +404,7 @@ impl fmt::Display for DateTimeField {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, DFConvert)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// The Unicode Standard defines four normalization forms, which are intended to eliminate
@@ -580,7 +577,7 @@ pub fn escape_unicode_string(s: &str) -> EscapeUnicodeStringLiteral<'_> {
     EscapeUnicodeStringLiteral(s)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DFConvert)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum TrimWhereField {
