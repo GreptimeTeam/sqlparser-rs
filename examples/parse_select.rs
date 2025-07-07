@@ -17,18 +17,17 @@
 
 #![warn(clippy::all)]
 
-use sqlparser::dialect::GenericDialect;
+use sqlparser::dialect::GreptimeDbDialect;
 use sqlparser::parser::*;
 
 fn main() {
-    let sql = "SELECT a, b, 123, myfunc(b) \
-               FROM table_1 \
-               WHERE a > b AND b < 100 \
-               ORDER BY a DESC, b";
+    simple_logger::init().unwrap();
 
-    let dialect = GenericDialect {};
+    let sql = "SELECT sum(metrics) FILL MAX FROM t FILL NULL ALIGN '1h';";
+
+    let dialect = GreptimeDbDialect;
 
     let ast = Parser::parse_sql(&dialect, sql).unwrap();
 
-    println!("AST: {ast:?}");
+    println!("AST: {ast:#?}");
 }
