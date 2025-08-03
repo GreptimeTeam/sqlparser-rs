@@ -2235,8 +2235,7 @@ fn test_snowflake_stage_object_names() {
     {
         let (formatted_name, object_name) = it;
         let sql = format!(
-            "COPY INTO {} FROM 'gcs://mybucket/./../a.csv'",
-            formatted_name
+            "COPY INTO {formatted_name} FROM 'gcs://mybucket/./../a.csv'"
         );
         match snowflake().verified_stmt(&sql) {
             Statement::CopyIntoSnowflake { into, .. } => {
@@ -2695,7 +2694,7 @@ fn parse_use() {
     for object_name in &valid_object_names {
         // Test single identifier without quotes
         assert_eq!(
-            snowflake().verified_stmt(&format!("USE {}", object_name)),
+            snowflake().verified_stmt(&format!("USE {object_name}")),
             Statement::Use(Use::Object(ObjectName(vec![Ident::new(
                 object_name.to_string()
             )])))
@@ -2703,7 +2702,7 @@ fn parse_use() {
         for &quote in &quote_styles {
             // Test single identifier with different type of quotes
             assert_eq!(
-                snowflake().verified_stmt(&format!("USE {}{}{}", quote, object_name, quote)),
+                snowflake().verified_stmt(&format!("USE {quote}{object_name}{quote}")),
                 Statement::Use(Use::Object(ObjectName(vec![Ident::with_quote(
                     quote,
                     object_name.to_string(),
@@ -2715,7 +2714,7 @@ fn parse_use() {
     for &quote in &quote_styles {
         // Test double identifier with different type of quotes
         assert_eq!(
-            snowflake().verified_stmt(&format!("USE {0}CATALOG{0}.{0}my_schema{0}", quote)),
+            snowflake().verified_stmt(&format!("USE {quote}CATALOG{quote}.{quote}my_schema{quote}")),
             Statement::Use(Use::Object(ObjectName(vec![
                 Ident::with_quote(quote, "CATALOG"),
                 Ident::with_quote(quote, "my_schema")
@@ -2734,35 +2733,35 @@ fn parse_use() {
     for &quote in &quote_styles {
         // Test single and double identifier with keyword and different type of quotes
         assert_eq!(
-            snowflake().verified_stmt(&format!("USE DATABASE {0}my_database{0}", quote)),
+            snowflake().verified_stmt(&format!("USE DATABASE {quote}my_database{quote}")),
             Statement::Use(Use::Database(ObjectName(vec![Ident::with_quote(
                 quote,
                 "my_database".to_string(),
             )])))
         );
         assert_eq!(
-            snowflake().verified_stmt(&format!("USE SCHEMA {0}my_schema{0}", quote)),
+            snowflake().verified_stmt(&format!("USE SCHEMA {quote}my_schema{quote}")),
             Statement::Use(Use::Schema(ObjectName(vec![Ident::with_quote(
                 quote,
                 "my_schema".to_string(),
             )])))
         );
         assert_eq!(
-            snowflake().verified_stmt(&format!("USE SCHEMA {0}CATALOG{0}.{0}my_schema{0}", quote)),
+            snowflake().verified_stmt(&format!("USE SCHEMA {quote}CATALOG{quote}.{quote}my_schema{quote}")),
             Statement::Use(Use::Schema(ObjectName(vec![
                 Ident::with_quote(quote, "CATALOG"),
                 Ident::with_quote(quote, "my_schema")
             ])))
         );
         assert_eq!(
-            snowflake().verified_stmt(&format!("USE ROLE {0}my_role{0}", quote)),
+            snowflake().verified_stmt(&format!("USE ROLE {quote}my_role{quote}")),
             Statement::Use(Use::Role(ObjectName(vec![Ident::with_quote(
                 quote,
                 "my_role".to_string(),
             )])))
         );
         assert_eq!(
-            snowflake().verified_stmt(&format!("USE WAREHOUSE {0}my_wh{0}", quote)),
+            snowflake().verified_stmt(&format!("USE WAREHOUSE {quote}my_wh{quote}")),
             Statement::Use(Use::Warehouse(ObjectName(vec![Ident::with_quote(
                 quote,
                 "my_wh".to_string(),

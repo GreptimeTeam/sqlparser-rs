@@ -758,7 +758,7 @@ fn parse_use() {
     for object_name in &valid_object_names {
         // Test single identifier without quotes
         assert_eq!(
-            duckdb().verified_stmt(&format!("USE {}", object_name)),
+            duckdb().verified_stmt(&format!("USE {object_name}")),
             Statement::Use(Use::Object(ObjectName(vec![Ident::new(
                 object_name.to_string()
             )])))
@@ -766,7 +766,7 @@ fn parse_use() {
         for &quote in &quote_styles {
             // Test single identifier with different type of quotes
             assert_eq!(
-                duckdb().verified_stmt(&format!("USE {0}{1}{0}", quote, object_name)),
+                duckdb().verified_stmt(&format!("USE {quote}{object_name}{quote}")),
                 Statement::Use(Use::Object(ObjectName(vec![Ident::with_quote(
                     quote,
                     object_name.to_string(),
@@ -778,7 +778,7 @@ fn parse_use() {
     for &quote in &quote_styles {
         // Test double identifier with different type of quotes
         assert_eq!(
-            duckdb().verified_stmt(&format!("USE {0}CATALOG{0}.{0}my_schema{0}", quote)),
+            duckdb().verified_stmt(&format!("USE {quote}CATALOG{quote}.{quote}my_schema{quote}")),
             Statement::Use(Use::Object(ObjectName(vec![
                 Ident::with_quote(quote, "CATALOG"),
                 Ident::with_quote(quote, "my_schema")

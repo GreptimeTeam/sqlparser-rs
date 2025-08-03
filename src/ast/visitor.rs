@@ -729,7 +729,7 @@ mod tests {
             .unwrap();
 
         let mut visitor = TestVisitor::default();
-        s.visit(&mut visitor);
+        let _ = s.visit(&mut visitor);
         visitor.visited
     }
 
@@ -904,10 +904,10 @@ mod tests {
     #[test]
     fn overflow() {
         let cond = (0..1000)
-            .map(|n| format!("X = {}", n))
+            .map(|n| format!("X = {n}"))
             .collect::<Vec<_>>()
             .join(" OR ");
-        let sql = format!("SELECT x where {0}", cond);
+        let sql = format!("SELECT x where {cond}");
 
         let dialect = GenericDialect {};
         let tokens = Tokenizer::new(&dialect, sql.as_str()).tokenize().unwrap();
@@ -917,6 +917,7 @@ mod tests {
             .unwrap();
 
         let mut visitor = QuickVisitor {};
-        s.visit(&mut visitor);
+        let flow = s.visit(&mut visitor);
+        assert_eq!(flow, ControlFlow::Continue(()));
     }
 }

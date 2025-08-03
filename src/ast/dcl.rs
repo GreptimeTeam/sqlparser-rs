@@ -175,7 +175,7 @@ impl fmt::Display for AlterRoleOperation {
                 in_database,
             } => {
                 if let Some(database_name) = in_database {
-                    write!(f, "IN DATABASE {} ", database_name)?;
+                    write!(f, "IN DATABASE {database_name} ")?;
                 }
 
                 match config_value {
@@ -189,7 +189,7 @@ impl fmt::Display for AlterRoleOperation {
                 in_database,
             } => {
                 if let Some(database_name) = in_database {
-                    write!(f, "IN DATABASE {} ", database_name)?;
+                    write!(f, "IN DATABASE {database_name} ")?;
                 }
 
                 match config_name {
@@ -220,15 +220,15 @@ impl fmt::Display for Use {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("USE ")?;
         match self {
-            Use::Catalog(name) => write!(f, "CATALOG {}", name),
-            Use::Schema(name) => write!(f, "SCHEMA {}", name),
-            Use::Database(name) => write!(f, "DATABASE {}", name),
-            Use::Warehouse(name) => write!(f, "WAREHOUSE {}", name),
-            Use::Role(name) => write!(f, "ROLE {}", name),
+            Use::Catalog(name) => write!(f, "CATALOG {name}"),
+            Use::Schema(name) => write!(f, "SCHEMA {name}"),
+            Use::Database(name) => write!(f, "DATABASE {name}"),
+            Use::Warehouse(name) => write!(f, "WAREHOUSE {name}"),
+            Use::Role(name) => write!(f, "ROLE {name}"),
             Use::SecondaryRoles(secondary_roles) => {
-                write!(f, "SECONDARY ROLES {}", secondary_roles)
+                write!(f, "SECONDARY ROLES {secondary_roles}")
             }
-            Use::Object(name) => write!(f, "{}", name),
+            Use::Object(name) => write!(f, "{name}"),
             Use::Default => write!(f, "DEFAULT"),
         }
     }
