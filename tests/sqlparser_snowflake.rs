@@ -2234,9 +2234,7 @@ fn test_snowflake_stage_object_names() {
         .zip(allowed_object_names.iter_mut())
     {
         let (formatted_name, object_name) = it;
-        let sql = format!(
-            "COPY INTO {formatted_name} FROM 'gcs://mybucket/./../a.csv'"
-        );
+        let sql = format!("COPY INTO {formatted_name} FROM 'gcs://mybucket/./../a.csv'");
         match snowflake().verified_stmt(&sql) {
             Statement::CopyIntoSnowflake { into, .. } => {
                 assert_eq!(into.0, object_name.0)
@@ -2714,7 +2712,9 @@ fn parse_use() {
     for &quote in &quote_styles {
         // Test double identifier with different type of quotes
         assert_eq!(
-            snowflake().verified_stmt(&format!("USE {quote}CATALOG{quote}.{quote}my_schema{quote}")),
+            snowflake().verified_stmt(&format!(
+                "USE {quote}CATALOG{quote}.{quote}my_schema{quote}"
+            )),
             Statement::Use(Use::Object(ObjectName(vec![
                 Ident::with_quote(quote, "CATALOG"),
                 Ident::with_quote(quote, "my_schema")
@@ -2747,7 +2747,9 @@ fn parse_use() {
             )])))
         );
         assert_eq!(
-            snowflake().verified_stmt(&format!("USE SCHEMA {quote}CATALOG{quote}.{quote}my_schema{quote}")),
+            snowflake().verified_stmt(&format!(
+                "USE SCHEMA {quote}CATALOG{quote}.{quote}my_schema{quote}"
+            )),
             Statement::Use(Use::Schema(ObjectName(vec![
                 Ident::with_quote(quote, "CATALOG"),
                 Ident::with_quote(quote, "my_schema")

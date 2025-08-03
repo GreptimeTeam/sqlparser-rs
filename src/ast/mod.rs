@@ -4576,9 +4576,17 @@ impl fmt::Display for Statement {
                     "{hivevar}{name} = {l_paren}{value}{r_paren}",
                     hivevar = if *hivevar { "HIVEVAR:" } else { "" },
                     name = variables,
-                    l_paren = if parenthesized { "(" } else { Default::default() },
+                    l_paren = if parenthesized {
+                        "("
+                    } else {
+                        Default::default()
+                    },
                     value = display_comma_separated(value),
-                    r_paren = if parenthesized { ")" } else { Default::default() },
+                    r_paren = if parenthesized {
+                        ")"
+                    } else {
+                        Default::default()
+                    },
                 )
             }
             Statement::SetTimeZone { local, value } => {
