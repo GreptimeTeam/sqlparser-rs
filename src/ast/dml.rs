@@ -226,7 +226,7 @@ impl Display for CreateTable {
             name = self.name,
         )?;
         if let Some(on_cluster) = &self.on_cluster {
-            write!(f, " ON CLUSTER {}", on_cluster)?;
+            write!(f, " ON CLUSTER {on_cluster}")?;
         }
         if !self.columns.is_empty() || !self.constraints.is_empty() {
             write!(f, " ({}", display_comma_separated(&self.columns))?;
@@ -364,10 +364,10 @@ impl Display for CreateTable {
             write!(f, " AUTO_INCREMENT {auto_increment_offset}")?;
         }
         if let Some(primary_key) = &self.primary_key {
-            write!(f, " PRIMARY KEY {}", primary_key)?;
+            write!(f, " PRIMARY KEY {primary_key}")?;
         }
         if let Some(order_by) = &self.order_by {
-            write!(f, " ORDER BY {}", order_by)?;
+            write!(f, " ORDER BY {order_by}")?;
         }
         if let Some(partition_by) = self.partition_by.as_ref() {
             write!(f, " PARTITION BY {partition_by}")?;

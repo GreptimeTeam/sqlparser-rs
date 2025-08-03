@@ -2947,7 +2947,7 @@ fn test_fn_arg_with_value_operator() {
             assert!(matches!(
                 &args[..],
                 &[FunctionArg::ExprNamed { operator: FunctionArgOperator::Value, .. }]
-            ), "Invalid function argument: {:?}", args);
+            ), "Invalid function argument: {args:?}");
         }
         other => panic!("Expected: JSON_OBJECT('name' VALUE 'value') to be parsed as a function, but got {other:?}"),
     }
@@ -4922,7 +4922,7 @@ fn parse_drop_trigger() {
                 "DROP TRIGGER{} check_update ON table_name{}",
                 if if_exists { " IF EXISTS" } else { "" },
                 option
-                    .map(|o| format!(" {}", o))
+                    .map(|o| format!(" {o}"))
                     .unwrap_or_else(|| "".to_string())
             );
             assert_eq!(
@@ -5016,8 +5016,7 @@ fn parse_trigger_related_functions() {
     // Now we parse the statements and check if they are parsed correctly.
     let mut statements = pg()
         .parse_sql_statements(&format!(
-            "{}{}{}{}",
-            sql_table_creation, sql_create_function, sql_create_trigger, sql_drop_trigger
+            "{sql_table_creation}{sql_create_function}{sql_create_trigger}{sql_drop_trigger}"
         ))
         .unwrap();
 
