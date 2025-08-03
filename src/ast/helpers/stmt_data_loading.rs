@@ -123,7 +123,7 @@ impl fmt::Display for DataLoadingOptions {
                 } else {
                     f.write_str(" ")?;
                 }
-                write!(f, "{}", option)?;
+                write!(f, "{option}")?;
             }
         }
         Ok(())
