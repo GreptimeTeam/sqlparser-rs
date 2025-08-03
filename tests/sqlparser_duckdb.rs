@@ -778,7 +778,9 @@ fn parse_use() {
     for &quote in &quote_styles {
         // Test double identifier with different type of quotes
         assert_eq!(
-            duckdb().verified_stmt(&format!("USE {quote}CATALOG{quote}.{quote}my_schema{quote}")),
+            duckdb().verified_stmt(&format!(
+                "USE {quote}CATALOG{quote}.{quote}my_schema{quote}"
+            )),
             Statement::Use(Use::Object(ObjectName(vec![
                 Ident::with_quote(quote, "CATALOG"),
                 Ident::with_quote(quote, "my_schema")

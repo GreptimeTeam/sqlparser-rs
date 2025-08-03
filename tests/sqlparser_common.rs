@@ -13348,3 +13348,16 @@ fn parse_range_range_align_to_calculate() {
         "Expected: end of statement, found: )",
     );
 }
+
+#[test]
+fn convert_to_datafusion_statement_overflow() {
+    let expr = std::iter::repeat_n("num BETWEEN 0 AND 1", 1000)
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let sql = format!("SELECT num FROM numbers WHERE {expr}");
+
+    let mut statements = Parser::parse_sql(&GenericDialect {}, sql.as_str()).unwrap();
+    let statement = statements.pop().unwrap();
+    let df_statement: df_sqlparser::ast::Statement = statement.into();
+    assert_eq!(df_statement.to_string(), sql);
+}
