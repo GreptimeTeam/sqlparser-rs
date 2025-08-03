@@ -13351,11 +13351,10 @@ fn parse_range_range_align_to_calculate() {
 
 #[test]
 fn convert_to_datafusion_statement_overflow() {
-    let expr = std::iter::repeat("num BETWEEN 0 AND 1")
-        .take(1000)
+    let expr = std::iter::repeat_n("num BETWEEN 0 AND 1", 1000)
         .collect::<Vec<_>>()
         .join(" OR ");
-    let sql = format!("SELECT num FROM numbers WHERE {}", expr);
+    let sql = format!("SELECT num FROM numbers WHERE {expr}");
 
     let mut statements = Parser::parse_sql(&GenericDialect {}, sql.as_str()).unwrap();
     let statement = statements.pop().unwrap();
