@@ -134,6 +134,7 @@ where
     Self: Into<T>,
 {
     #[inline(always)]
+    #[cfg_attr(feature = "recursive-protection", recursive::recursive)]
     fn convert(value: Self) -> T {
         Self::into(value)
     }

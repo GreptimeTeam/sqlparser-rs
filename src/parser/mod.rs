@@ -1323,8 +1323,7 @@ impl<'a> Parser<'a> {
         })?;
         if rewrite_count == 0 {
             return Err(ParserError::ParserError(format!(
-                "Can't use the RANGE keyword in Expr {} without function",
-                expr
+                "Can't use the RANGE keyword in Expr {expr} without function"
             )));
         }
         Ok(expr)
@@ -16880,6 +16879,7 @@ impl Word {
 /// * `Ok(Some(replacement_expr))`: A replacement `Expr` is provided, use replacement `Expr`.
 /// * `Ok(None)`: A replacement `Expr` is not provided, use old `Expr`.
 /// * `Err(err)`: Any error returned.
+#[cfg_attr(feature = "recursive-protection", recursive::recursive)]
 fn rewrite_calculation_expr<F>(
     expr: &Expr,
     rewrite_func_expr: bool,
