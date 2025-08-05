@@ -3476,7 +3476,7 @@ fn test_double_value() {
     for (input, expected) in test_cases {
         for (i, expr) in input.iter().enumerate() {
             if let Statement::Query(query) =
-                dialects.one_statement_parses_to(&format!("SELECT {}", expr), "")
+                dialects.one_statement_parses_to(&format!("SELECT {expr}"), "")
             {
                 if let SetExpr::Select(select) = *query.body {
                     assert_eq!(expected[i], select.projection[0]);
@@ -3928,13 +3928,13 @@ fn parse_create_table_column_constraint_characteristics() {
             syntax
         };
 
-        let sql = format!("CREATE TABLE t (a int UNIQUE {})", syntax);
+        let sql = format!("CREATE TABLE t (a int UNIQUE {syntax})");
         let expected_clause = if syntax.is_empty() {
             String::new()
         } else {
             format!(" {syntax}")
         };
-        let expected = format!("CREATE TABLE t (a INT UNIQUE{})", expected_clause);
+        let expected = format!("CREATE TABLE t (a INT UNIQUE{expected_clause})");
         let ast = one_statement_parses_to(&sql, &expected);
 
         let expected_value = if deferrable.is_some() || initially.is_some() || enforced.is_some() {
@@ -9826,7 +9826,7 @@ fn parse_offset_and_limit() {
 #[test]
 fn parse_time_functions() {
     fn test_time_function(func_name: &'static str) {
-        let sql = format!("SELECT {}()", func_name);
+        let sql = format!("SELECT {func_name}()");
         let select = verified_only_select(&sql);
         let select_localtime_func_call_ast = Function {
             name: ObjectName::from(vec![Ident::new(func_name)]),
@@ -9848,7 +9848,7 @@ fn parse_time_functions() {
         );
 
         // Validating Parenthesis
-        let sql_without_parens = format!("SELECT {}", func_name);
+        let sql_without_parens = format!("SELECT {func_name}");
         let mut ast_without_parens = select_localtime_func_call_ast;
         ast_without_parens.args = FunctionArguments::None;
         assert_eq!(
@@ -14004,11 +14004,10 @@ fn test_table_sample() {
 
 #[test]
 fn overflow() {
-    let expr = std::iter::repeat("1")
-        .take(1000)
+    let expr = std::iter::repeat_n("1", 1000)
         .collect::<Vec<_>>()
         .join(" + ");
-    let sql = format!("SELECT {}", expr);
+    let sql = format!("SELECT {expr}");
 
     let mut statements = Parser::parse_sql(&GenericDialect {}, sql.as_str()).unwrap();
     let statement = statements.pop().unwrap();
@@ -14628,9 +14627,7 @@ fn assert_sql_err(input: &str, expected: &str) {
     let res_str = format!("{:?}", res.unwrap_err());
     assert!(
         res_str.contains(expected),
-        "`{}` doesn't contains `{}`",
-        res_str,
-        expected
+        "`{res_str}` doesn't contains `{expected}`"
     );
 }
 
@@ -14877,4 +14874,17 @@ fn parse_range_range_align_to_calculate() {
         "SELECT rate(a) RANGE '6m' FROM t ALIGN '1h' TO (( (now()) - ((INTERVAL '1' day)) ) ) ) FILL NULL;",
         "Expected: end of statement, found: )",
     );
+}
+
+#[test]
+fn convert_to_datafusion_statement_overflow() {
+    let expr = std::iter::repeat_n("num BETWEEN 0 AND 1", 1000)
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let sql = format!("SELECT num FROM numbers WHERE {expr}");
+
+    let mut statements = Parser::parse_sql(&GenericDialect {}, sql.as_str()).unwrap();
+    let statement = statements.pop().unwrap();
+    let df_statement: df_sqlparser::ast::Statement = statement.into();
+    assert_eq!(df_statement.to_string(), sql);
 }

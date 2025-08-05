@@ -439,7 +439,7 @@ impl<'a> Parser<'a> {
     ///
     /// See example on [`Parser::new()`] for an example
     pub fn try_with_sql(self, sql: &str) -> Result<Self, ParserError> {
-        debug!("Parsing sql '{}'...", sql);
+        debug!("Parsing sql '{sql}'...");
         let tokens = Tokenizer::new(self.dialect, sql)
             .with_unescape(self.options.unescape)
             .tokenize_with_location()?;
@@ -1030,7 +1030,7 @@ impl<'a> Parser<'a> {
         loop {
             expr = self.parse_range_expr(expr)?;
             let next_precedence = self.get_next_precedence()?;
-            debug!("next precedence: {:?}", next_precedence);
+            debug!("next precedence: {next_precedence:?}");
 
             if precedence >= next_precedence {
                 break;
@@ -1112,8 +1112,7 @@ impl<'a> Parser<'a> {
         })?;
         if rewrite_count == 0 {
             return Err(ParserError::ParserError(format!(
-                "Can't use the RANGE keyword in Expr {} without function",
-                expr
+                "Can't use the RANGE keyword in Expr {expr} without function"
             )));
         }
         Ok(expr)
@@ -2440,10 +2439,7 @@ impl<'a> Parser<'a> {
         self.expect_token(&Token::LParen)?;
         let mut trim_where = None;
         if let Token::Word(word) = self.peek_token().token {
-            if [Keyword::BOTH, Keyword::LEADING, Keyword::TRAILING]
-                .iter()
-                .any(|d| word.keyword == *d)
-            {
+            if [Keyword::BOTH, Keyword::LEADING, Keyword::TRAILING].contains(&word.keyword) {
                 trim_where = Some(self.parse_trim_where()?);
             }
         }
@@ -15058,6 +15054,7 @@ impl Word {
 /// * `Ok(Some(replacement_expr))`: A replacement `Expr` is provided, use replacement `Expr`.
 /// * `Ok(None)`: A replacement `Expr` is not provided, use old `Expr`.
 /// * `Err(err)`: Any error returned.
+#[cfg_attr(feature = "recursive-protection", recursive::recursive)]
 fn rewrite_calculation_expr<F>(
     expr: &Expr,
     rewrite_func_expr: bool,

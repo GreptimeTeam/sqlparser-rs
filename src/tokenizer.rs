@@ -1771,7 +1771,7 @@ impl<'a> Tokenizer<'a> {
                 chars.next();
 
                 let mut temp = String::new();
-                let end_delimiter = format!("${}$", value);
+                let end_delimiter = format!("${value}$");
 
                 loop {
                     match chars.next() {
@@ -2359,13 +2359,13 @@ fn take_char_from_hex_digits(
             location: chars.location(),
         })?;
         let digit = next_char.to_digit(16).ok_or_else(|| TokenizerError {
-            message: format!("Invalid hex digit in escaped unicode string: {}", next_char),
+            message: format!("Invalid hex digit in escaped unicode string: {next_char}"),
             location: chars.location(),
         })?;
         result = result * 16 + digit;
     }
     char::from_u32(result).ok_or_else(|| TokenizerError {
-        message: format!("Invalid unicode character: {:x}", result),
+        message: format!("Invalid unicode character: {result:x}"),
         location: chars.location(),
     })
 }
@@ -3461,7 +3461,7 @@ mod tests {
     }
 
     fn check_unescape(s: &str, expected: Option<&str>) {
-        let s = format!("'{}'", s);
+        let s = format!("'{s}'");
         let mut state = State {
             peekable: s.chars().peekable(),
             line: 0,

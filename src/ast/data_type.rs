@@ -609,7 +609,7 @@ impl fmt::Display for DataType {
             }
             DataType::Enum(vals, bits) => {
                 match bits {
-                    Some(bits) => write!(f, "ENUM{}", bits),
+                    Some(bits) => write!(f, "ENUM{bits}"),
                     None => write!(f, "ENUM"),
                 }?;
                 write!(f, "(")?;
@@ -657,16 +657,16 @@ impl fmt::Display for DataType {
             }
             // ClickHouse
             DataType::Nullable(data_type) => {
-                write!(f, "Nullable({})", data_type)
+                write!(f, "Nullable({data_type})")
             }
             DataType::FixedString(character_length) => {
-                write!(f, "FixedString({})", character_length)
+                write!(f, "FixedString({character_length})")
             }
             DataType::LowCardinality(data_type) => {
-                write!(f, "LowCardinality({})", data_type)
+                write!(f, "LowCardinality({data_type})")
             }
             DataType::Map(key_data_type, value_data_type) => {
-                write!(f, "Map({}, {})", key_data_type, value_data_type)
+                write!(f, "Map({key_data_type}, {value_data_type})")
             }
             DataType::Tuple(fields) => {
                 write!(f, "Tuple({})", display_comma_separated(fields))
@@ -873,7 +873,7 @@ impl fmt::Display for CharacterLength {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CharacterLength::IntegerLength { length, unit } => {
-                write!(f, "{}", length)?;
+                write!(f, "{length}")?;
                 if let Some(unit) = unit {
                     write!(f, " {unit}")?;
                 }
