@@ -20,14 +20,14 @@ use alloc::{
     vec,
     vec::Vec,
 };
-#[cfg(feature = "bigdecimal-sql")]
+#[cfg(feature = "bigdecimal")]
 use bigdecimal::BigDecimal;
 use core::{
     fmt::{self, Display},
     str::FromStr,
 };
 use helpers::attached_token::AttachedToken;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use log::debug;
 
@@ -9213,10 +9213,10 @@ impl<'a> Parser<'a> {
                 }),
             }))
         } else {
-            return self.expected_ref(
+            self.expected_ref(
                 "{RENAME TO | { RENAME | ADD } VALUE}",
                 self.peek_token_ref(),
-            );
+            )
         }
     }
 
@@ -12038,11 +12038,11 @@ impl<'a> Parser<'a> {
                         // All data will be aggregated into a group, which is equivalent to using a random constant as the aggregation key.
                         // Therefore, in this case, the constant 1 is used directly as the aggregation key.
                         // `()` == `(1)`
-                        #[cfg(not(feature = "bigdecimal-sql"))]
+                        #[cfg(not(feature = "bigdecimal"))]
                         {
                             vec![Expr::Value(Value::Number("1".into(), false).into())]
                         }
-                        #[cfg(feature = "bigdecimal-sql")]
+                        #[cfg(feature = "bigdecimal")]
                         {
                             vec![Expr::Value(
                                 Value::Number(BigDecimal::from(1), false).into(),
@@ -12077,7 +12077,7 @@ impl<'a> Parser<'a> {
             let by_num = FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
                 Value::SingleQuotedString(by.len().to_string()).into(),
             )));
-            let mut fake_group_by = HashSet::new();
+            let mut fake_group_by = BTreeSet::new();
             let by = by
                 .into_iter()
                 .map(|x| {
@@ -12088,7 +12088,7 @@ impl<'a> Parser<'a> {
             // range_fn(func, range, fill, byc, [byv], align, to)
             // byc are length of variadic arguments [byv]
             let mut rewrite_count = 0;
-            let mut align_fill_rewrite = |expr: Expr, columns: &mut HashSet<Expr>| {
+            let mut align_fill_rewrite = |expr: Expr, columns: &mut BTreeSet<Expr>| {
                 rewrite_calculation_expr(&expr, true, &mut |e: &Expr| match e {
                     Expr::Function(func) => {
                         if let Some(name) = func.name.0.first() {
@@ -17001,7 +17001,7 @@ where
     Ok(())
 }
 
-fn collect_column_from_expr(expr: &Expr, columns: &mut HashSet<Expr>, remove: bool) {
+fn collect_column_from_expr(expr: &Expr, columns: &mut BTreeSet<Expr>, remove: bool) {
     let _ = walk_expr(expr, &mut |e| {
         if matches!(e, Expr::CompoundIdentifier(_) | Expr::Identifier(_)) {
             if remove {
