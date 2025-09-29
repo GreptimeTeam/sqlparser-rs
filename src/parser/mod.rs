@@ -13193,7 +13193,7 @@ impl<'a> Parser<'a> {
         Ok(SetAssignment { scope, name, value })
     }
 
-    fn parse_set(&mut self) -> Result<Statement, ParserError> {
+    pub fn parse_set(&mut self) -> Result<Statement, ParserError> {
         let hivevar = self.parse_keyword(Keyword::HIVEVAR);
 
         // Modifier is either HIVEVAR: or a ContextModifier (LOCAL, SESSION, etc), not both
