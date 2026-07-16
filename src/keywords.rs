@@ -108,6 +108,7 @@ define_keywords!(
     ALERT,
     ALGORITHM,
     ALIAS,
+    ALIGN,
     ALIGNMENT,
     ALL,
     ALLOCATE,
@@ -1252,6 +1253,9 @@ pub const RESERVED_FOR_TABLE_ALIAS: &[Keyword] = &[
     Keyword::TABLESAMPLE,
     Keyword::FROM,
     Keyword::OPEN,
+    // Greptime range query clauses.
+    Keyword::ALIGN,
+    Keyword::FILL,
 ];
 
 /// Can't be used as a column alias, so that `SELECT <expr> alias`
@@ -1286,6 +1290,9 @@ pub const RESERVED_FOR_COLUMN_ALIAS: &[Keyword] = &[
     Keyword::FROM,
     Keyword::INTO,
     Keyword::END,
+    // Greptime range query expressions.
+    Keyword::RANGE,
+    Keyword::FILL,
 ];
 
 /// Global list of reserved keywords allowed after FROM.

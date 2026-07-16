@@ -20,6 +20,8 @@ use alloc::{
     vec,
     vec::Vec,
 };
+#[cfg(feature = "bigdecimal")]
+use bigdecimal::BigDecimal;
 use core::{
     fmt::{self, Display},
     str::FromStr,
@@ -1364,7 +1366,67 @@ impl<'a> Parser<'a> {
 
     /// Parse a new expression.
     pub fn parse_expr(&mut self) -> Result<Expr, ParserError> {
-        self.parse_subexpr(self.dialect.prec_unknown())
+        let expr = self.parse_subexpr(self.dialect.prec_unknown())?;
+        self.parse_range_expr(expr)
+    }
+
+    /// Parses Greptime's per-expression `RANGE <duration> [FILL <value>]`
+    /// extension and rewrites matching function calls to `range_fn`.
+    fn parse_range_expr(&mut self, expr: Expr) -> Result<Expr, ParserError> {
+        let index = self.index;
+        let range = if self.parse_keyword(Keyword::RANGE) {
+            // A RANGE frame belongs to a window specification, not this extension.
+            // Only consume RANGE when it is followed by a duration or parenthesized
+            // interval expression.
+            if self.consume_token(&Token::LParen) {
+                let expr = self.parse_expr()?;
+                self.expect_token(&Token::RParen)?;
+                expr
+            } else {
+                let value = match self.maybe_parse(|p| p.parse_value())? {
+                    Some(value) => value,
+                    None => {
+                        self.index = index;
+                        return Ok(expr);
+                    }
+                };
+                validate_range_duration(&value)?;
+                Expr::Value(value)
+            }
+        } else if self.parse_keyword(Keyword::FILL) {
+            return Err(ParserError::ParserError(
+                "Detected FILL in a SELECT expression without a preceding RANGE".into(),
+            ));
+        } else {
+            return Ok(expr);
+        };
+
+        let fill = if self.parse_keyword(Keyword::FILL) {
+            Value::SingleQuotedString(self.next_token().token.to_string()).with_empty_span()
+        } else {
+            Value::SingleQuotedString(String::new()).with_empty_span()
+        };
+
+        let mut rewrite_count = 0;
+        let rewritten = rewrite_calculation_expr(&expr, false, &mut |expr| {
+            if matches!(expr, Expr::Function(_)) {
+                rewrite_count += 1;
+                Ok(Some(range_function(
+                    expr.clone(),
+                    range.clone(),
+                    fill.clone(),
+                )))
+            } else {
+                Ok(None)
+            }
+        })?;
+
+        if rewrite_count == 0 {
+            return Err(ParserError::ParserError(format!(
+                "Can't use RANGE in expression {expr} without a function"
+            )));
+        }
+        Ok(rewritten)
     }
 
     /// Parse expression with optional alias and order by.
@@ -14817,9 +14879,155 @@ impl<'a> Parser<'a> {
 
         let connect_by = self.maybe_parse_connect_by()?;
 
-        let group_by = self
+        let mut group_by = self
             .parse_optional_group_by()?
             .unwrap_or_else(|| GroupByExpr::Expressions(vec![], vec![]));
+
+        // Greptime range query clauses are parsed after GROUP BY so that the
+        // standard clause ordering remains intact. ALIGN is mandatory for any
+        // projection that was rewritten to `range_fn`.
+        let mut align = None;
+        let mut fill = None;
+        for _ in 0..2 {
+            if self.parse_keyword(Keyword::ALIGN) {
+                if align.is_some() {
+                    return Err(ParserError::ParserError(
+                        "Duplicate ALIGN keyword detected in SELECT clause.".into(),
+                    ));
+                }
+
+                let duration = if self.consume_token(&Token::LParen) {
+                    let expr = self.parse_expr()?;
+                    self.expect_token(&Token::RParen)?;
+                    expr
+                } else {
+                    let value = self.parse_value()?;
+                    validate_range_duration(&value)?;
+                    Expr::Value(value)
+                };
+                let to = if self.parse_keyword(Keyword::TO) {
+                    if self.consume_token(&Token::LParen) {
+                        let expr = self.parse_expr()?;
+                        self.expect_token(&Token::RParen)?;
+                        expr
+                    } else {
+                        Expr::Value(
+                            Value::SingleQuotedString(
+                                self.next_token()
+                                    .token
+                                    .to_string()
+                                    .trim_matches(|c| c == '\'' || c == '"')
+                                    .to_string(),
+                            )
+                            .with_empty_span(),
+                        )
+                    }
+                } else {
+                    Expr::Value(Value::SingleQuotedString(String::new()).with_empty_span())
+                };
+                let by = if self.parse_keyword(Keyword::BY) {
+                    self.expect_token(&Token::LParen)?;
+                    if self.consume_token(&Token::RParen) {
+                        vec![range_empty_by_expr()]
+                    } else {
+                        let exprs = self.parse_comma_separated(Parser::parse_expr)?;
+                        self.expect_token(&Token::RParen)?;
+                        exprs
+                    }
+                } else {
+                    vec![]
+                };
+                align = Some((duration, to, by));
+            }
+
+            if self.parse_keyword(Keyword::FILL) {
+                if fill.is_some() {
+                    return Err(ParserError::ParserError(
+                        "Duplicate FILL keyword detected in SELECT clause.".into(),
+                    ));
+                }
+                fill = Some(self.next_token().token.to_string());
+            }
+        }
+
+        if align.is_none() && fill.is_some() {
+            return Err(ParserError::ParserError(
+                "ALIGN argument cannot be omitted in the range select query".into(),
+            ));
+        }
+
+        let projection = if let Some((duration, to, by)) = align {
+            let fill = fill.unwrap_or_default();
+            let by_count = function_arg(Expr::Value(
+                Value::SingleQuotedString(by.len().to_string()).with_empty_span(),
+            ));
+            let mut group_columns = vec![];
+            let by = by
+                .into_iter()
+                .map(|expr| {
+                    collect_columns(&expr, &mut group_columns, false);
+                    function_arg(expr)
+                })
+                .collect::<Vec<_>>();
+            let mut rewrite_count = 0;
+            let projection = projection
+                .into_iter()
+                .map(|item| match item {
+                    SelectItem::UnnamedExpr(expr) => {
+                        collect_columns(&expr, &mut group_columns, false);
+                        Ok(SelectItem::UnnamedExpr(rewrite_range_select_expr(
+                            expr,
+                            &fill,
+                            &by_count,
+                            &by,
+                            &duration,
+                            &to,
+                            &mut group_columns,
+                            &mut rewrite_count,
+                        )?))
+                    }
+                    SelectItem::ExprWithAlias { expr, alias } => {
+                        collect_columns(&expr, &mut group_columns, false);
+                        Ok(SelectItem::ExprWithAlias {
+                            expr: rewrite_range_select_expr(
+                                expr,
+                                &fill,
+                                &by_count,
+                                &by,
+                                &duration,
+                                &to,
+                                &mut group_columns,
+                                &mut rewrite_count,
+                            )?,
+                            alias,
+                        })
+                    }
+                    _ => Err(ParserError::ParserError(
+                        "Wildcard `*` is not allowed in range select query".into(),
+                    )),
+                })
+                .collect::<Result<Vec<_>, ParserError>>()?;
+            if rewrite_count == 0 {
+                return Err(ParserError::ParserError(
+                    "Illegal range select: no RANGE keyword found in any SELECT item".into(),
+                ));
+            }
+            // Preserve first appearance order while de-duplicating. The old
+            // BTreeSet implementation reordered grouping expressions.
+            group_by = GroupByExpr::Expressions(group_columns, vec![]);
+            projection
+        } else {
+            for item in &projection {
+                if let Some(expr) = select_item_expr(item) {
+                    if range_fn_requires_alignment(expr) {
+                        return Err(ParserError::ParserError(
+                            "ALIGN argument cannot be omitted in the range select query".into(),
+                        ));
+                    }
+                }
+            }
+            projection
+        };
 
         let cluster_by = if self.parse_keywords(&[Keyword::CLUSTER, Keyword::BY]) {
             self.parse_comma_separated(Parser::parse_expr)?
@@ -20572,6 +20780,314 @@ fn maybe_prefixed_expr(expr: Expr, prefix: Option<Ident>) -> Expr {
     }
 }
 
+fn validate_range_duration(value: &ValueWithSpan) -> Result<(), ParserError> {
+    let Some(duration) = value.clone().into_string() else {
+        return Err(ParserError::ParserError(format!(
+            "not a valid duration string: {value}"
+        )));
+    };
+    if duration.is_empty() {
+        return Err(ParserError::ParserError("empty duration string".into()));
+    }
+    if duration == "0" {
+        return Err(ParserError::ParserError(
+            "duration must be greater than 0".into(),
+        ));
+    }
+
+    let mut remaining = duration.as_str();
+    let mut previous_unit = None;
+    while !remaining.is_empty() {
+        let digits = remaining
+            .bytes()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if digits == 0 {
+            return Err(ParserError::ParserError(format!(
+                "not a valid duration string: {duration}"
+            )));
+        }
+        remaining = &remaining[digits..];
+        let (unit, rank) = if let Some(rest) = remaining.strip_prefix("ms") {
+            remaining = rest;
+            ("ms", 6)
+        } else if let Some(unit) = remaining.chars().next() {
+            remaining = &remaining[unit.len_utf8()..];
+            match unit {
+                'y' => ("y", 0),
+                'w' => ("w", 1),
+                'd' => ("d", 2),
+                'h' => ("h", 3),
+                'm' => ("m", 4),
+                's' => ("s", 5),
+                _ => {
+                    return Err(ParserError::ParserError(format!(
+                        "not a valid duration string: {duration}"
+                    )))
+                }
+            }
+        } else {
+            return Err(ParserError::ParserError(format!(
+                "not a valid duration string: {duration}"
+            )));
+        };
+        if previous_unit.is_some_and(|previous| previous >= rank) {
+            return Err(ParserError::ParserError(format!(
+                "not a valid duration string: {duration}"
+            )));
+        }
+        previous_unit = Some(rank);
+        let _ = unit;
+    }
+    Ok(())
+}
+
+fn range_function(function: Expr, range: Expr, fill: ValueWithSpan) -> Expr {
+    Expr::Function(Function {
+        name: ObjectName::from(vec![Ident::new("range_fn")]),
+        uses_odbc_syntax: false,
+        parameters: FunctionArguments::None,
+        args: FunctionArguments::List(FunctionArgumentList {
+            duplicate_treatment: None,
+            args: vec![
+                function_arg(function),
+                function_arg(range),
+                function_arg(Expr::Value(fill)),
+            ],
+            clauses: vec![],
+        }),
+        filter: None,
+        null_treatment: None,
+        over: None,
+        within_group: vec![],
+    })
+}
+
+fn function_arg(expr: Expr) -> FunctionArg {
+    FunctionArg::Unnamed(FunctionArgExpr::Expr(expr))
+}
+
+#[cfg(not(feature = "bigdecimal"))]
+fn range_empty_by_expr() -> Expr {
+    Expr::Value(Value::Number("1".into(), false).with_empty_span())
+}
+
+#[cfg(feature = "bigdecimal")]
+fn range_empty_by_expr() -> Expr {
+    Expr::Value(Value::Number(BigDecimal::from(1), false).with_empty_span())
+}
+
+fn rewrite_range_select_expr(
+    expr: Expr,
+    fill: &str,
+    by_count: &FunctionArg,
+    by: &[FunctionArg],
+    duration: &Expr,
+    to: &Expr,
+    group_columns: &mut Vec<Expr>,
+    rewrite_count: &mut usize,
+) -> Result<Expr, ParserError> {
+    rewrite_calculation_expr(&expr, true, &mut |expr| {
+        let Expr::Function(function) = expr else {
+            return Ok(None);
+        };
+        if function
+            .name
+            .0
+            .first()
+            .and_then(ObjectNamePart::as_ident)
+            .is_none_or(|name| name.value != "range_fn")
+        {
+            return Ok(None);
+        }
+
+        let mut range_function = function.clone();
+        let FunctionArguments::List(args) = &mut range_function.args else {
+            return Ok(None);
+        };
+        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(expr))) = args.args.first() {
+            collect_columns(expr, group_columns, true);
+        }
+        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(value)))) =
+            args.args.last_mut()
+        {
+            if let Value::SingleQuotedString(value) = &mut value.value {
+                if value.is_empty() {
+                    *value = fill.into();
+                }
+            }
+        }
+        args.args.push(by_count.clone());
+        args.args.extend_from_slice(by);
+        args.args.push(function_arg(duration.clone()));
+        args.args.push(function_arg(to.clone()));
+        *rewrite_count += 1;
+        Ok(Some(Expr::Function(range_function)))
+    })
+}
+
+fn rewrite_calculation_expr<F>(
+    expr: &Expr,
+    rewrite_function_args: bool,
+    replacement: &mut F,
+) -> Result<Expr, ParserError>
+where
+    F: FnMut(&Expr) -> Result<Option<Expr>, ParserError>,
+{
+    if let Some(replacement) = replacement(expr)? {
+        return Ok(replacement);
+    }
+    match expr {
+        Expr::BinaryOp { left, op, right } => Ok(Expr::BinaryOp {
+            left: Box::new(rewrite_calculation_expr(
+                left,
+                rewrite_function_args,
+                replacement,
+            )?),
+            op: op.clone(),
+            right: Box::new(rewrite_calculation_expr(
+                right,
+                rewrite_function_args,
+                replacement,
+            )?),
+        }),
+        Expr::Nested(expr) => Ok(Expr::Nested(Box::new(rewrite_calculation_expr(
+            expr,
+            rewrite_function_args,
+            replacement,
+        )?))),
+        Expr::Cast {
+            kind,
+            expr,
+            data_type,
+            array,
+            format,
+        } => Ok(Expr::Cast {
+            kind: kind.clone(),
+            expr: Box::new(rewrite_calculation_expr(
+                expr,
+                rewrite_function_args,
+                replacement,
+            )?),
+            data_type: data_type.clone(),
+            array: *array,
+            format: format.clone(),
+        }),
+        Expr::Ceil { expr, field } => Ok(Expr::Ceil {
+            expr: Box::new(rewrite_calculation_expr(
+                expr,
+                rewrite_function_args,
+                replacement,
+            )?),
+            field: field.clone(),
+        }),
+        Expr::Floor { expr, field } => Ok(Expr::Floor {
+            expr: Box::new(rewrite_calculation_expr(
+                expr,
+                rewrite_function_args,
+                replacement,
+            )?),
+            field: field.clone(),
+        }),
+        Expr::Function(function) if rewrite_function_args => {
+            let mut function = function.clone();
+            if let FunctionArguments::List(args) = &mut function.args {
+                for arg in &mut args.args {
+                    if let FunctionArg::Named {
+                        arg: FunctionArgExpr::Expr(expr),
+                        ..
+                    }
+                    | FunctionArg::ExprNamed {
+                        arg: FunctionArgExpr::Expr(expr),
+                        ..
+                    }
+                    | FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = arg
+                    {
+                        *expr = rewrite_calculation_expr(expr, rewrite_function_args, replacement)?;
+                    }
+                }
+            }
+            Ok(Expr::Function(function))
+        }
+        _ => Ok(expr.clone()),
+    }
+}
+
+fn collect_columns(expr: &Expr, columns: &mut Vec<Expr>, remove: bool) {
+    match expr {
+        Expr::BinaryOp { left, right, .. } => {
+            collect_columns(left, columns, remove);
+            collect_columns(right, columns, remove);
+        }
+        Expr::Nested(expr)
+        | Expr::Cast { expr, .. }
+        | Expr::Ceil { expr, .. }
+        | Expr::Floor { expr, .. } => collect_columns(expr, columns, remove),
+        Expr::Function(function) => {
+            if let FunctionArguments::List(args) = &function.args {
+                for arg in &args.args {
+                    if let FunctionArg::Named {
+                        arg: FunctionArgExpr::Expr(expr),
+                        ..
+                    }
+                    | FunctionArg::ExprNamed {
+                        arg: FunctionArgExpr::Expr(expr),
+                        ..
+                    }
+                    | FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = arg
+                    {
+                        collect_columns(expr, columns, remove);
+                    }
+                }
+            }
+        }
+        Expr::Identifier(_) | Expr::CompoundIdentifier(_) => {
+            if remove {
+                columns.retain(|column| column != expr);
+            } else if !columns.contains(expr) {
+                columns.push(expr.clone());
+            }
+        }
+        _ => {}
+    }
+}
+
+fn range_fn_requires_alignment(expr: &Expr) -> bool {
+    match expr {
+        Expr::Function(function) => {
+            let is_incomplete_range_fn = function
+                .name
+                .0
+                .first()
+                .and_then(ObjectNamePart::as_ident)
+                .is_some_and(|name| name.value == "range_fn")
+                && matches!(&function.args, FunctionArguments::List(args) if args.args.len() < 5);
+            is_incomplete_range_fn
+                || matches!(&function.args, FunctionArguments::List(args) if args.args.iter().any(|arg| match arg {
+                    FunctionArg::Named { arg: FunctionArgExpr::Expr(expr), .. }
+                    | FunctionArg::ExprNamed { arg: FunctionArgExpr::Expr(expr), .. }
+                    | FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) => range_fn_requires_alignment(expr),
+                    _ => false,
+                }))
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            range_fn_requires_alignment(left) || range_fn_requires_alignment(right)
+        }
+        Expr::Nested(expr)
+        | Expr::Cast { expr, .. }
+        | Expr::Ceil { expr, .. }
+        | Expr::Floor { expr, .. } => range_fn_requires_alignment(expr),
+        _ => false,
+    }
+}
+
+fn select_item_expr(item: &SelectItem) -> Option<&Expr> {
+    match item {
+        SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => Some(expr),
+        _ => None,
+    }
+}
+
 impl Word {
     /// Convert a reference to this word into an [`Ident`] by cloning the value.
     ///
@@ -21371,5 +21887,81 @@ mod tests {
             let sql = format!("\nSELECT\n  :{w}fooBar");
             assert!(Parser::parse_sql(&GenericDialect, &sql).is_err());
         }
+    }
+
+    #[test]
+    fn parse_greptime_range_query_rewrites_ast_and_grouping() {
+        let sql = "SELECT sum(value) RANGE '5m' FROM metrics ALIGN '1m' BY (host) FILL PREV";
+        let statement = Parser::parse_sql(&GenericDialect, sql).unwrap().remove(0);
+        assert_eq!(
+            statement.to_string(),
+            "SELECT range_fn(sum(value), '5m', 'PREV', '1', host, '1m', '') FROM metrics GROUP BY host"
+        );
+        let displayed = statement.to_string();
+        assert_eq!(
+            Parser::parse_sql(&GenericDialect, &displayed)
+                .unwrap()
+                .remove(0)
+                .to_string(),
+            displayed
+        );
+
+        let Statement::Query(query) = statement else {
+            panic!("expected query");
+        };
+        let SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT");
+        };
+        let SelectItem::UnnamedExpr(Expr::Function(function)) = &select.projection[0] else {
+            panic!("expected rewritten range_fn");
+        };
+        assert_eq!(function.name.to_string(), "range_fn");
+        let FunctionArguments::List(args) = &function.args else {
+            panic!("expected range_fn arguments");
+        };
+        assert_eq!(args.args.len(), 7);
+        assert_eq!(select.group_by.to_string(), "GROUP BY host");
+    }
+
+    #[test]
+    fn parse_greptime_range_query_supports_per_expression_and_global_fill() {
+        let sql = "SELECT rate(value) RANGE '5m', sum(value) RANGE '10m' FILL MAX FROM metrics ALIGN '1m' FILL NULL";
+        let statement = Parser::parse_sql(&GenericDialect, sql).unwrap().remove(0);
+        assert_eq!(
+            statement.to_string(),
+            "SELECT range_fn(rate(value), '5m', 'NULL', '0', '1m', ''), range_fn(sum(value), '10m', 'MAX', '0', '1m', '') FROM metrics"
+        );
+
+        let sql =
+            "SELECT sum(value) RANGE '5m' FROM metrics ALIGN '1m' TO '1970-01-01T00:00:00Z' BY ()";
+        let statement = Parser::parse_sql(&GenericDialect, sql).unwrap().remove(0);
+        assert_eq!(
+            statement.to_string(),
+            "SELECT range_fn(sum(value), '5m', '', '1', 1, '1m', '1970-01-01T00:00:00Z') FROM metrics"
+        );
+    }
+
+    #[test]
+    fn parse_greptime_range_query_rejects_ambiguous_or_incomplete_forms() {
+        for sql in [
+            "SELECT sum(value) RANGE '5m' FROM metrics",
+            "SELECT sum(value) RANGE '5m' FROM metrics FILL NULL",
+            "SELECT sum(value) RANGE 'invalid' FROM metrics ALIGN '1m'",
+            "SELECT sum(value) FILL NULL FROM metrics ALIGN '1m'",
+            "SELECT sum(value) RANGE '5m' FROM metrics ALIGN '1m' ALIGN '1m'",
+            "SELECT sum(value) RANGE '5m' FROM metrics ALIGN '1m' FILL NULL FILL PREV",
+        ] {
+            assert!(
+                Parser::parse_sql(&GenericDialect, sql).is_err(),
+                "expected {sql} to fail"
+            );
+        }
+    }
+
+    #[test]
+    fn greptime_range_query_does_not_capture_window_range() {
+        let sql = "SELECT sum(value) OVER (ORDER BY ts RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) FROM metrics";
+        let statement = Parser::parse_sql(&GenericDialect, sql).unwrap().remove(0);
+        assert_eq!(statement.to_string(), sql);
     }
 }

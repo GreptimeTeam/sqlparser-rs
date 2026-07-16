@@ -1314,6 +1314,16 @@ fn parse_with_fill() {
 }
 
 #[test]
+fn greptime_range_extension_does_not_capture_clickhouse_with_fill() {
+    let sql = "SELECT fname FROM customer ORDER BY fname WITH FILL FROM 10 TO 20 STEP 2";
+    let select = clickhouse().verified_query(sql);
+    let OrderByKind::Expressions(exprs) = select.order_by.expect("ORDER BY expected").kind else {
+        panic!("expected ORDER BY expressions");
+    };
+    assert!(exprs[0].with_fill.is_some());
+}
+
+#[test]
 fn parse_with_fill_missing_single_argument() {
     let sql = "SELECT id, fname, lname FROM customer ORDER BY \
             fname WITH FILL FROM TO 20";

@@ -32,6 +32,10 @@ include = [
 ]
 edition = "2021"
 
+# This worktree is nested below GreptimeDB's workspace but must remain an
+# independent sqlparser package so it can be used as a Cargo patch.
+[workspace]
+
 [lib]
 name = "sqlparser"
 path = "src/lib.rs"
