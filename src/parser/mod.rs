@@ -1366,8 +1366,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a new expression.
     pub fn parse_expr(&mut self) -> Result<Expr, ParserError> {
-        let expr = self.parse_subexpr(self.dialect.prec_unknown())?;
-        self.parse_range_expr(expr)
+        self.parse_subexpr(self.dialect.prec_unknown())
     }
 
     /// Parses Greptime's per-expression `RANGE <duration> [FILL <value>]`
@@ -1470,6 +1469,7 @@ impl<'a> Parser<'a> {
 
         debug!("prefix: {expr:?}");
         loop {
+            expr = self.parse_range_expr(expr)?;
             let next_precedence = self.get_next_precedence()?;
             debug!("next precedence: {next_precedence:?}");
 
@@ -21963,5 +21963,60 @@ mod tests {
         let sql = "SELECT sum(value) OVER (ORDER BY ts RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) FROM metrics";
         let statement = Parser::parse_sql(&GenericDialect, sql).unwrap().remove(0);
         assert_eq!(statement.to_string(), sql);
+    }
+
+    #[test]
+    fn greptime_range_query_rejects_range_after_multiplication() {
+        let sql = "SELECT min(val) * 2 RANGE '10s' FROM host ALIGN '5s'";
+        assert_eq!(
+            Parser::parse_sql(&GenericDialect, sql)
+                .unwrap_err()
+                .to_string(),
+            "sql parser error: Can't use RANGE in expression 2 without a function"
+        );
+    }
+
+    #[test]
+    fn greptime_range_query_preserves_expression_precedence() {
+        let sql = "SELECT (min(val)+max(val)) RANGE '20s' + 1.0 FROM host ALIGN '10s'";
+        let statement = Parser::parse_sql(&GenericDialect, sql).unwrap().remove(0);
+        assert_eq!(
+            statement.to_string(),
+            "SELECT (range_fn(min(val), '20s', '', '0', '10s', '') + range_fn(max(val), '20s', '', '0', '10s', '')) + 1.0 FROM host"
+        );
+
+        let Statement::Query(query) = statement else {
+            panic!("expected query");
+        };
+        let SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("expected SELECT");
+        };
+        let SelectItem::UnnamedExpr(Expr::BinaryOp { left, right, .. }) = &select.projection[0]
+        else {
+            panic!("expected outer addition");
+        };
+        assert!(matches!(right.as_ref(), Expr::Value(_)));
+        let Expr::Nested(inner) = left.as_ref() else {
+            panic!("expected parenthesized range expression");
+        };
+        let Expr::BinaryOp { left, right, .. } = inner.as_ref() else {
+            panic!("expected range expression addition");
+        };
+        for expr in [left, right] {
+            let Expr::Function(function) = expr.as_ref() else {
+                panic!("expected range_fn");
+            };
+            assert_eq!(function.name.to_string(), "range_fn");
+        }
+    }
+
+    #[test]
+    fn greptime_range_query_accepts_range_after_function_multiplication() {
+        let sql = "SELECT 2 * min(val) RANGE '20s' FROM host ALIGN '10s'";
+        let statement = Parser::parse_sql(&GenericDialect, sql).unwrap().remove(0);
+        assert_eq!(
+            statement.to_string(),
+            "SELECT 2 * range_fn(min(val), '20s', '', '0', '10s', '') FROM host"
+        );
     }
 }
