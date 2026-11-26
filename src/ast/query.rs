@@ -1812,6 +1812,8 @@ pub enum TableSampleMethod {
     System,
     /// `BLOCK` sampling method.
     Block,
+    /// `SERIES` sampling method: sample whole series (GreptimeDB).
+    Series,
 }
 
 impl fmt::Display for TableSampleMethod {
@@ -1821,6 +1823,7 @@ impl fmt::Display for TableSampleMethod {
             TableSampleMethod::Row => write!(f, "ROW"),
             TableSampleMethod::System => write!(f, "SYSTEM"),
             TableSampleMethod::Block => write!(f, "BLOCK"),
+            TableSampleMethod::Series => write!(f, "SERIES"),
         }
     }
 }

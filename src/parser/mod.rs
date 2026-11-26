@@ -15718,11 +15718,13 @@ impl<'a> Parser<'a> {
             Keyword::ROW,
             Keyword::SYSTEM,
             Keyword::BLOCK,
+            Keyword::SERIES,
         ]) {
             Some(Keyword::BERNOULLI) => Some(TableSampleMethod::Bernoulli),
             Some(Keyword::ROW) => Some(TableSampleMethod::Row),
             Some(Keyword::SYSTEM) => Some(TableSampleMethod::System),
             Some(Keyword::BLOCK) => Some(TableSampleMethod::Block),
+            Some(Keyword::SERIES) => Some(TableSampleMethod::Series),
             _ => None,
         };
 

@@ -927,6 +927,7 @@ define_keywords!(
     SERDE,
     SERDEPROPERTIES,
     SERIALIZABLE,
+    SERIES,
     SERVER,
     SERVICE,
     SESSION,
