@@ -15634,6 +15634,52 @@ fn test_table_sample() {
 }
 
 #[test]
+fn test_table_sample_series_method() {
+    // `SERIES` names the sampling method, so the quantity is the fraction of series
+    // to keep rather than a row or percent count.
+    let dialects = all_dialects_where(|d| d.supports_table_sample_before_alias());
+    for (sql, canonical) in [
+        (
+            "SELECT * FROM tbl SAMPLE SERIES (1/16)",
+            "SELECT * FROM tbl SAMPLE SERIES (1 / 16)",
+        ),
+        (
+            "SELECT * FROM tbl SAMPLE SERIES (0.0625)",
+            "SELECT * FROM tbl SAMPLE SERIES (0.0625)",
+        ),
+    ] {
+        let stmt = dialects.one_statement_parses_to(sql, canonical);
+        let Query { body, .. } = stmt_to_query(&stmt);
+        let SetExpr::Select(select) = &**body else {
+            panic!("expected a select, got {body:?}")
+        };
+        let TableFactor::Table { sample, .. } = &select.from[0].relation else {
+            panic!("expected a table factor")
+        };
+        let sample = match sample.as_ref().expect("the sample clause must survive") {
+            TableSampleKind::BeforeTableAlias(sample) | TableSampleKind::AfterTableAlias(sample) => {
+                sample.as_ref()
+            }
+        };
+        assert_eq!(Some(TableSampleMethod::Series), sample.name);
+        let quantity = sample.quantity.as_ref().expect("quantity");
+        assert!(
+            matches!(&quantity.value, Expr::BinaryOp { op: BinaryOperator::Divide, .. })
+                || matches!(&quantity.value, Expr::Value(_)),
+            "unexpected quantity: {:?}",
+            quantity.value
+        );
+    }
+}
+
+fn stmt_to_query(stmt: &Statement) -> &Query {
+    let Statement::Query(query) = stmt else {
+        panic!("expected a query, got {stmt:?}")
+    };
+    query
+}
+
+#[test]
 fn overflow() {
     let expr = std::iter::repeat_n("1", 1000)
         .collect::<Vec<_>>()
